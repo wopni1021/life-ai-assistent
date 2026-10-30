@@ -1,0 +1,13 @@
+# Never commit personal data or secrets
+exports/
+*.csv
+*.pdf
+.env
+*.key
+
+# Generated test page (built from Parsers.gs + tests/run.html)
+backend/apps-script/tests/run-inline.html
+
+.DS_Store
+docs-preview.html
+.claude/

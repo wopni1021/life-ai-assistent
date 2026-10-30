@@ -1,5 +1,5 @@
 /* Caches the app shell so it opens fast. Money data is never cached here. Bump VERSION when files change. */
-var VERSION = 'v1';
+var VERSION = 'v2';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'mock-api.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', function (e) {

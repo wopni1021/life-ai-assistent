@@ -27,7 +27,7 @@
     del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
   var cfg = { url: store.get('le_url') || '', token: store.get('le_token') || '' };
-  var state = { tab: store.get('le_tab') || 'home', reviewCount: 0, month: null, query: '', review: null, catsCache: null };
+  var state = { tab: store.get('le_tab') || 'home', reviewCount: 0, month: null, query: '', review: null, catsCache: null, account: null };
 
   /* ---------- helpers ---------- */
   function fmt(n) {
@@ -104,7 +104,7 @@
     nav.hidden = !(cfg.token && (cfg.token === 'demo' || cfg.url));
   }
   function setTab(t) {
-    state.tab = t; store.set('le_tab', t);
+    state.tab = t; state.account = null; store.set('le_tab', t);
     buildTabs(); render(); window.scrollTo(0, 0);
   }
   function setReviewCount(n) {
@@ -114,7 +114,8 @@
   function render() {
     if (!cfg.token || (cfg.token !== 'demo' && !cfg.url)) return renderSetup();
     $('#tabs').hidden = false;
-    ({ home: renderHome, review: renderReview, txns: renderTxns, add: renderAdd })[state.tab]();
+    if (state.tab === 'home' && state.account) return renderTxns(state.account);
+    ({ home: renderHome, review: renderReview, txns: function () { renderTxns(null); }, add: renderAdd })[state.tab]();
   }
   function signOut() {
     store.del('le_url'); store.del('le_token'); cfg = { url: '', token: '' };
@@ -169,6 +170,14 @@
     b.accounts.forEach(function (a) { accts.append(accountRow(a)); });
     out.push(h('div', null, h('div', { class: 'section-head' }, h('h2', null, 'Accounts')), h('div', { style: 'height:8px' }), accts));
 
+    var recent = s.recent || [];
+    var ctx = makeCtx({ accounts: b.accounts, categories: s.categories });
+    out.push(h('div', null,
+      h('div', { class: 'section-head' }, h('h2', null, 'Recent'),
+        h('button', { class: 'link', onclick: function () { setTab('txns'); } }, 'See all')),
+      recent.length ? h('div', { class: 'recent' }, txnGroups(recent, ctx, renderHome))
+        : h('div', { class: 'card empty', style: 'margin-top:8px' }, 'No transactions yet. New bank alerts show up here within about a minute.')));
+
     var bars = h('div', { class: 'card bars' });
     var top = m.byCategory.slice(0, 6), max = top.length ? Math.max.apply(null, top.map(function (c) { return Math.abs(c.total); })) || 1 : 1;
     if (!top.length) bars.append(h('div', { class: 'muted' }, 'No spending yet this month.'));
@@ -186,28 +195,13 @@
   }
   function accountRow(a) {
     var isCard = a.type === 'card';
-    var wrap = h('div');
-    var detail = h('div', { class: 'acct-detail', hidden: true });
-    var input = h('input', { type: 'text', inputmode: 'decimal', id: 'bal-' + a.id, placeholder: isCard ? 'Amount owed right now' : 'Balance right now', autocomplete: 'off' });
-    var save = h('button', { class: 'btn', onclick: function () {
-      var v = parseMoney(input.value);
-      if (isNaN(v)) return toast('Enter a number');
-      save.disabled = true;
-      api('setBalance', { account: a.id, actual: isCard ? -Math.abs(v) : v })
-        .then(function () { toast('Balance updated'); renderHome(); })
-        .catch(function (e) { toast(e.message); save.disabled = false; });
-    } }, 'Set balance');
-    append(detail, [
-      isCard ? h('div', { class: 'small muted' }, 'Spent since last payment: ' + fmt(a.sinceLastPayment || 0)) : null,
-      h('div', { class: 'small muted' }, 'Alerts do not show balances. Type what your bank app says to correct this number.'),
-      h('label', { class: 'field' }, isCard ? 'Amount owed' : 'Actual balance', input), save]);
-    var row = h('button', { class: 'acct', 'aria-expanded': 'false', onclick: function () {
-      detail.hidden = !detail.hidden; row.setAttribute('aria-expanded', String(!detail.hidden));
+    return h('button', { class: 'acct', onclick: function () {
+      state.account = a.id; state.query = ''; renderTxns(a.id); window.scrollTo(0, 0);
     } },
       h('div', null, h('div', { class: 'name' }, a.name), h('div', { class: 'small muted' }, isCard ? 'Credit card' : a.bank + ' account')),
-      isCard ? h('div', { class: 'amt owed num' }, fmt(-a.balance) + ' owed') : h('div', { class: 'amt num' }, fmt(a.balance)));
-    wrap.append(row, detail);
-    return wrap;
+      h('div', { class: 'acct-right' },
+        isCard ? h('div', { class: 'amt owed num' }, fmt(-a.balance) + ' owed') : h('div', { class: 'amt num' }, fmt(a.balance)),
+        h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')));
   }
 
   /* ---------- editor (used by Review and Activity) ---------- */
@@ -327,42 +321,81 @@
       })));
   }
 
+  /* ---------- transaction lists (Home, Activity, account screen) ---------- */
+  /** One day-grouped list of rows. When accountId is set, signs follow the row's delta for that account. */
+  function txnGroups(rows, ctx, reload) {
+    var out = [], card = null, lastDay = '';
+    rows.forEach(function (r) {
+      var day = r.datetime.slice(0, 10);
+      if (day !== lastDay) {
+        if (card) out.push(card);
+        out.push(h('div', { class: 'day' }, dayLabel(day)));
+        card = h('div', { class: 'card list' }); lastDay = day;
+      }
+      var hasDelta = r.delta !== undefined && r.delta !== null;
+      var isIn = hasDelta ? r.delta > 0 : (r.direction === 'in' || r.direction === 'refund');
+      var sign = hasDelta ? (r.delta > 0 ? '+' : r.delta < 0 ? '−' : '') : (isIn ? '+' : (r.direction === 'out' ? '−' : ''));
+      var shown = hasDelta ? Math.abs(r.delta) : r.amount;
+      card.append(h('button', { class: 'tx', onclick: function () { openSheet(r, ctx, reload); } },
+        h('div', { class: 'm' }, h('div', { class: 'title' }, r.merchant || r.merchantRaw || 'Entry'),
+          h('div', { class: 'small muted' }, [r.category || (r.status === 'review' ? 'Needs review' : 'Uncategorised'), r.tag ? ' · ' + r.tag : '', r.status === 'dup' ? ' · duplicate' : ''])),
+        h('div', { class: 'amt num' + (isIn ? ' in' : '') }, r.amount === '' ? '?' : sign + fmt(shown).replace('−', ''))));
+    });
+    if (card) out.push(card);
+    return out;
+  }
+
+  /** Correct an account's balance from the bank app. Card: type what you owe. */
+  function balanceForm(a, onDone) {
+    var isCard = a.type === 'card';
+    var input = h('input', { type: 'text', inputmode: 'decimal', id: 'bal-' + a.id, placeholder: isCard ? 'Amount owed right now' : 'Balance right now', autocomplete: 'off' });
+    var save = h('button', { class: 'btn', onclick: function () {
+      var v = parseMoney(input.value);
+      if (isNaN(v)) return toast('Enter a number');
+      save.disabled = true;
+      api('setBalance', { account: a.id, actual: isCard ? -Math.abs(v) : v })
+        .then(function () { toast('Balance updated'); onDone(); })
+        .catch(function (e) { toast(e.message); save.disabled = false; });
+    } }, 'Set balance');
+    return h('div', { class: 'acct-detail' },
+      h('div', { class: 'small muted' }, 'Alerts do not show balances. Type what your bank app says to correct this number.'),
+      h('label', { class: 'field' }, isCard ? 'Amount owed' : 'Actual balance', input), save);
+  }
+
+  function accountHeader(a, onChanged) {
+    var isCard = a.type === 'card';
+    return h('div', { class: 'card acct-head' },
+      h('button', { class: 'back', onclick: function () { state.account = null; state.query = ''; renderHome(); window.scrollTo(0, 0); } }, '← Home'),
+      h('div', { class: 'label' }, a.name),
+      h('div', { class: 'big num' + (isCard ? ' owed' : '') }, isCard ? fmt(-a.balance) + ' owed' : fmt(a.balance)),
+      isCard ? h('div', { class: 'small muted' }, 'Spent since last payment: ' + fmt(a.sinceLastPayment || 0)) : null,
+      h('details', { class: 'fix' }, h('summary', null, 'Correct this balance'), balanceForm(a, onChanged)));
+  }
+
   /* ---------- activity ---------- */
   var searchTimer;
-  function renderTxns() {
+  /** accountId null = all accounts (Activity tab); otherwise one account's screen. */
+  function renderTxns(accountId) {
     var listBox = h('div', { id: 'txn-list' });
+    var headBox = h('div');
     var monthSel = h('select', { id: 'txn-month', 'aria-label': 'Month' });
     var search = h('input', { type: 'search', id: 'txn-q', placeholder: 'Search', value: state.query, 'aria-label': 'Search' });
-    show(h('div', null, h('div', { class: 'controls' }, monthSel, search), listBox));
+    show(h('div', null, headBox, h('div', { class: 'controls' }, monthSel, search), listBox));
     var ctxData = null;
     function load() {
       listBox.replaceChildren(h('div', { class: 'skeleton' }));
-      Promise.all([api('list', { month: state.month, query: state.query }), ctxData ? Promise.resolve(ctxData) : api('reviewQueue')])
+      Promise.all([api('list', { month: state.month, query: state.query, account: accountId || undefined }), ctxData ? Promise.resolve(ctxData) : api('reviewQueue')])
         .then(function (res) {
           var d = res[0]; ctxData = res[1]; state.month = d.month;
           monthSel.replaceChildren.apply(monthSel, d.months.map(function (m) { var o = h('option', { value: m }, monthLabel(m)); if (m === d.month) o.selected = true; return o; }));
+          if (accountId && d.account) headBox.replaceChildren(accountHeader(d.account, load));
           drawList(d, makeCtx(ctxData), load);
         }).catch(failed);
     }
     function drawList(d, ctx, reload) {
       listBox.replaceChildren();
       if (!d.rows.length) return listBox.append(h('div', { class: 'card empty' }, state.query ? 'Nothing matches that search.' : 'No transactions this month.'));
-      var card = null, lastDay = '';
-      d.rows.forEach(function (r) {
-        var day = r.datetime.slice(0, 10);
-        if (day !== lastDay) {
-          if (card) listBox.append(card);
-          listBox.append(h('div', { class: 'day' }, dayLabel(day)));
-          card = h('div', { class: 'card list' }); lastDay = day;
-        }
-        var isIn = r.direction === 'in' || r.direction === 'refund';
-        var sign = isIn ? '+' : (r.direction === 'out' ? '−' : '');
-        card.append(h('button', { class: 'tx', onclick: function () { openSheet(r, ctx, reload); } },
-          h('div', { class: 'm' }, h('div', { class: 'title' }, r.merchant || r.merchantRaw || 'Entry'),
-            h('div', { class: 'small muted' }, [r.category || (r.status === 'review' ? 'Needs review' : 'Uncategorised'), r.tag ? ' · ' + r.tag : '', r.status === 'dup' ? ' · duplicate' : ''])),
-          h('div', { class: 'amt num' + (isIn ? ' in' : '') }, r.amount === '' ? '?' : sign + fmt(r.amount).replace('−', ''))));
-      });
-      if (card) listBox.append(card);
+      append(listBox, txnGroups(d.rows, ctx, reload));
     }
     monthSel.addEventListener('change', function () { state.month = monthSel.value; load(); });
     search.addEventListener('input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { state.query = search.value.trim(); load(); }, 300); });

@@ -34,14 +34,28 @@
           byTag: [{ name: 'supermarket', total: 44.82 }, { name: 'commute', total: 3.5 }],
           reviewCount: tx.filter(function (r) { return r.status === 'review'; }).length
         },
-        banksSeen: ['DBS', 'UOB'], lastAlertAt: '2026-10-27T12:21:00', categories: categories
+        banksSeen: ['DBS', 'UOB'], lastAlertAt: '2026-10-27T12:21:00', categories: categories,
+        recent: tx.slice().sort(function (x, y) { return x.datetime < y.datetime ? 1 : -1; }).slice(0, 8)
       });
     }
     if (a === 'list') {
       var q = String(req.query || '').toLowerCase();
-      var rows = tx.filter(function (r) { return r.datetime.slice(0, 7) === (req.month || '2026-10') && (!q || (r.merchant + ' ' + r.merchantRaw + ' ' + r.category).toLowerCase().indexOf(q) >= 0); })
-        .sort(function (x, y) { return x.datetime < y.datetime ? 1 : -1; });
-      return delay({ month: req.month || '2026-10', months: ['2026-10', '2026-09'], rows: rows });
+      var acct = req.account || '';
+      var rows = tx.filter(function (r) {
+        if (r.datetime.slice(0, 7) !== (req.month || '2026-10')) return false;
+        if (acct && r.account !== acct && r.toAccount !== acct) return false;
+        return !q || (r.merchant + ' ' + r.merchantRaw + ' ' + r.category).toLowerCase().indexOf(q) >= 0;
+      }).sort(function (x, y) { return x.datetime < y.datetime ? 1 : -1; }).map(function (r) {
+        var o = JSON.parse(JSON.stringify(r));
+        if (acct) {
+          var amt = r.amount === '' ? 0 : r.amount;
+          o.delta = (r.direction === 'transfer' || r.direction === 'card_payment') ? (r.account === acct ? -amt : amt) : (r.direction === 'in' || r.direction === 'refund' ? amt : -amt);
+        }
+        return o;
+      });
+      var res = { month: req.month || '2026-10', months: ['2026-10', '2026-09'], rows: rows };
+      if (acct) res.account = JSON.parse(JSON.stringify(accounts.filter(function (x) { return x.id === acct; })[0]));
+      return delay(res);
     }
     if (a === 'reviewQueue') {
       return delay({

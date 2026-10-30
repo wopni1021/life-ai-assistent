@@ -70,6 +70,18 @@ button.notice { width: 100%; border: 0; text-align: left; font-weight: 600; }
 .acct .amt { font-weight: 600; font-size: 17px; }
 .acct .amt.owed { color: var(--warn); }
 .acct-detail { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+.acct-right { display: flex; align-items: center; gap: 8px; }
+.chev { color: var(--muted); font-size: 22px; line-height: 1; }
+.acct-head { padding: 12px 18px 14px; margin-bottom: 12px; }
+.acct-head .back { background: transparent; border: 0; color: var(--accent); font-weight: 600; min-height: 44px; padding: 0; margin-left: -2px; }
+.acct-head .label { font-size: 13px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; font-weight: 600; }
+.acct-head .big { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
+.acct-head .big.owed { color: var(--warn); }
+details.fix { margin-top: 10px; border-top: 1px solid var(--line); }
+details.fix summary { cursor: pointer; padding: 12px 0; color: var(--accent); font-weight: 600; min-height: 44px; }
+details.fix .acct-detail { padding: 0 0 6px; }
+button.link { background: transparent; border: 0; color: var(--accent); font-weight: 600; min-height: 36px; padding: 0 4px; }
+.recent .day:first-child { padding-top: 6px; }
 
 .section-head { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 4px 0; }
 .bars { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }

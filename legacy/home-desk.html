@@ -1,0 +1,534 @@
+<title>Home Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column, phone first. Four tabs on a bottom bar; each tab = quick-add field on top, live list below. */
+:root {
+  --bg: #F1F5F3;
+  --surface: #FFFFFF;
+  --ink: #13221E;
+  --muted: #5B6E67;
+  --line: #DAE3DF;
+  --accent: #0E6B58;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #DCEFE9;
+  --warn: #B4531A;
+  --warn-soft: #F8E6DA;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "DM Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1614; --surface: #16211E; --ink: #E5EEEB; --muted: #94A7A1; --line: #263530;
+    --accent: #4FC3A8; --accent-ink: #06241D; --accent-soft: #1A3A33; --warn: #F0975F; --warn-soft: #3A2417;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1614; --surface: #16211E; --ink: #E5EEEB; --muted: #94A7A1; --line: #263530;
+  --accent: #4FC3A8; --accent-ink: #06241D; --accent-soft: #1A3A33; --warn: #F0975F; --warn-soft: #3A2417;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 104px;
+}
+.wrap { max-width: 640px; margin: 0 auto; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0 14px; }
+h1 { font-family: var(--font-display); font-size: 26px; margin: 0; letter-spacing: -0.01em; }
+.today { color: var(--muted); font-size: 14px; }
+h2 { font-family: var(--font-display); font-size: 18px; margin: 0; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.banner { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+
+.composer { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.composer .field { flex: 1 1 200px; min-width: 0; }
+input[type=text], input[type=date], textarea, select {
+  width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); font-size: 16px;
+}
+textarea { resize: vertical; min-height: 74px; }
+.btn { min-height: 46px; padding: 0 18px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 14px; }
+.btn[disabled] { opacity: .55; cursor: default; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.list { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; gap: 10px; padding: 8px 6px 8px 12px; min-height: 52px; }
+.row + .row { border-top: 1px solid var(--line); }
+.row .main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.row .sub { color: var(--muted); font-size: 13px; }
+.row.done .main { color: var(--muted); text-decoration: line-through; }
+.tick { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--muted); background: transparent; display: grid; place-items: center; padding: 0; }
+.tick svg { width: 16px; height: 16px; stroke: var(--accent-ink); opacity: 0; }
+.row.done .tick { background: var(--accent); border-color: var(--accent); }
+.row.done .tick svg { opacity: 1; }
+.x { flex: none; width: 40px; height: 40px; border: 0; background: transparent; color: var(--muted); border-radius: 8px; font-size: 20px; line-height: 1; }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.chip.late { background: var(--warn-soft); color: var(--warn); }
+.amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.empty { padding: 22px 16px; color: var(--muted); text-align: center; font-size: 15px; }
+.section-label { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 18px 4px 8px; font-weight: 600; }
+details.fold > summary { cursor: pointer; padding: 6px 4px; color: var(--muted); font-size: 14px; }
+
+.ai-box { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+
+.month { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.month .label { font-family: var(--font-display); font-size: 18px; }
+.total { font-family: var(--font-display); font-size: 34px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.cats { display: flex; flex-direction: column; gap: 8px; padding: 14px; margin: 8px 0 4px; }
+.cat { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; align-items: center; font-size: 14px; }
+.bar { height: 8px; border-radius: 99px; background: var(--accent-soft); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.day { font-size: 12px; color: var(--muted); font-weight: 600; padding: 10px 12px 2px; background: var(--bg); }
+
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 7px 12px; font-size: 14px; }
+.chat { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.q { align-self: flex-end; max-width: 88%; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; border-radius: 14px 14px 4px 14px; overflow-wrap: anywhere; }
+.a { align-self: flex-start; max-width: 100%; padding: 12px 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.a .save { display: block; margin-top: 8px; }
+.profile { padding: 12px 14px; margin-bottom: 14px; }
+.profile summary { cursor: pointer; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.profile form { display: grid; gap: 10px; margin-top: 12px; }
+.profile label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.note { padding: 10px 14px; }
+.note + .note { border-top: 1px solid var(--line); }
+.note summary { cursor: pointer; font-weight: 600; }
+.note p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; font-size: 15px; }
+
+nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--surface); border-top: 1px solid var(--line);
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+}
+nav button { border: 0; background: transparent; color: var(--muted); display: grid; justify-items: center; gap: 2px; padding: 6px 0; font-size: 12px; font-weight: 600; border-radius: 10px; }
+nav button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+nav button[aria-selected="true"] { color: var(--accent); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+  background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 99px; font-size: 14px; max-width: calc(100% - 32px);
+}
+@media (prefers-reduced-motion: no-preference) { .toast { transition: opacity .2s; } }
+</style>
+
+<div class="wrap">
+  <header><h1>Home Desk</h1><span class="today" id="today"></span></header>
+  <div class="banner" id="banner" hidden>Not signed in, so nothing here is saved. Open this page from your Claude account to keep your lists.</div>
+
+  <section id="p-todo" role="tabpanel">
+    <form class="composer" id="todo-form">
+      <div class="field"><input type="text" id="todo-text" placeholder="Add a to-do" autocomplete="off" aria-label="New to-do"></div>
+      <input type="date" id="todo-due" aria-label="Due date" style="flex:0 0 150px">
+      <button class="btn" type="submit">Add</button>
+    </form>
+    <div class="tools"><button class="btn ghost small" id="plan-day" type="button">Plan my day</button></div>
+    <div class="ai-box" id="plan-out" hidden></div>
+    <div class="section-label">To do</div>
+    <div class="card list" id="todo-open"></div>
+    <details class="fold" id="todo-done-wrap"><summary id="todo-done-sum">Done</summary><div class="card list" id="todo-done"></div></details>
+  </section>
+
+  <section id="p-spend" role="tabpanel" hidden>
+    <form id="spend-form" class="composer">
+      <div class="field"><textarea id="spend-text" placeholder="Paste a bank SMS or email, or type: 18.50 Costco diapers" aria-label="Expense text"></textarea></div>
+      <button class="btn" type="submit" id="spend-add">Add</button>
+    </form>
+    <div class="month">
+      <button class="btn ghost small" id="m-prev" aria-label="Previous month">&larr;</button>
+      <span class="label" id="m-label"></span>
+      <button class="btn ghost small" id="m-next" aria-label="Next month">&rarr;</button>
+    </div>
+    <div class="total" id="m-total"></div>
+    <div class="card cats" id="cats"></div>
+    <div class="tools" style="margin-top:10px"><button class="btn ghost small" id="sum-month" type="button">Explain this month</button></div>
+    <div class="ai-box" id="sum-out" hidden></div>
+    <div class="section-label">Spending</div>
+    <div class="card list" id="spend-list" style="overflow:hidden"></div>
+  </section>
+
+  <section id="p-buy" role="tabpanel" hidden>
+    <form class="composer" id="buy-form">
+      <div class="field"><input type="text" id="buy-text" placeholder="Something to buy (e.g. size 3 diapers)" autocomplete="off" aria-label="New shopping item"></div>
+      <button class="btn" type="submit">Add</button>
+    </form>
+    <div class="section-label">To buy</div>
+    <div class="card list" id="buy-open"></div>
+    <details class="fold" id="buy-done-wrap"><summary id="buy-done-sum">Bought</summary><div class="card list" id="buy-done"></div></details>
+  </section>
+
+  <section id="p-baby" role="tabpanel" hidden>
+    <details class="card profile" id="profile">
+      <summary><h2 id="prof-title">About your baby</h2><span class="today" id="prof-age"></span></summary>
+      <form id="prof-form">
+        <label>Name<input type="text" id="prof-name" autocomplete="off"></label>
+        <label>Birth date<input type="date" id="prof-birth"></label>
+        <label>Currency symbol<input type="text" id="prof-cur" maxlength="4" autocomplete="off"></label>
+        <label>What Claude should know (feeding, allergies, routines)<textarea id="prof-notes"></textarea></label>
+        <button class="btn" type="submit">Save</button>
+      </form>
+    </details>
+    <div class="chips" id="chips"></div>
+    <div class="chat" id="chat"></div>
+    <form class="composer" id="ask-form">
+      <div class="field"><textarea id="ask-text" placeholder="Ask about feeding, sleep, play, or what to buy" aria-label="Question"></textarea></div>
+      <button class="btn" type="submit" id="ask-btn">Ask</button>
+      <button class="btn ghost" type="button" id="ask-stop" hidden>Stop</button>
+    </form>
+    <div class="section-label">Saved notes</div>
+    <div class="card" id="notes"></div>
+  </section>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<nav role="tablist" aria-label="Sections" id="nav"></nav>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  function h(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (k === 'class') e.className = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of kids.flat()) { if (c == null || c === false) continue; e.append(c.nodeType ? c : document.createTextNode(String(c))); }
+    return e;
+  }
+  const SVG = {
+    todo: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/></svg>',
+    spend: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16 15h2"/></svg>',
+    buy: '<svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6a3 3 0 016 0v2"/></svg>',
+    baby: '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z"/></svg>'
+  };
+  const TABS = [['todo', 'To do'], ['spend', 'Spend'], ['buy', 'Buy'], ['baby', 'Baby']];
+  const CATS = ['Baby', 'Groceries', 'Dining', 'Transport', 'Home', 'Health', 'Shopping', 'Bills', 'Other'];
+
+  const state = { items: [], profile: {}, tab: 'todo', month: ym(new Date()), chat: [] };
+  let db = null, sample = null;
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function ym(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
+  const cur = () => (state.profile.currency || '$');
+  const money = (n) => cur() + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function ageText() {
+    const b = state.profile.birth; if (!b) return '';
+    const d = new Date(b + 'T00:00:00'), now = new Date();
+    let months = (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth();
+    if (now.getDate() < d.getDate()) months--;
+    if (months < 0) return '';
+    if (months < 3) return Math.max(0, Math.floor((now - d) / 604800000)) + ' weeks old';
+    if (months < 24) return months + ' months old';
+    return Math.floor(months / 12) + ' years ' + (months % 12) + ' months old';
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+  }
+
+  /* ---------- store ---------- */
+  const store = {
+    async add(o) {
+      o.createdAt = Date.now();
+      if (db) await db.collection('items').add(o);
+      else { state.items.push(Object.assign({ id: 'l' + Math.random().toString(36).slice(2) }, o)); renderAll(); }
+    },
+    async patch(id, p) {
+      if (db) await db.doc('items/' + id).update(p);
+      else { Object.assign(state.items.find((i) => i.id === id) || {}, p); renderAll(); }
+    },
+    async remove(id) {
+      if (db) await db.doc('items/' + id).delete();
+      else { state.items = state.items.filter((i) => i.id !== id); renderAll(); }
+    }
+  };
+  async function safe(fn) { try { await fn(); } catch (e) { toast(e && e.code === 'quota_exceeded' ? 'Storage is full. Delete old items first.' : 'Could not save. Try again.'); } }
+
+  /* ---------- tabs ---------- */
+  function buildNav() {
+    const nav = $('#nav');
+    TABS.forEach(([id, label]) => {
+      const b = h('button', { role: 'tab', 'aria-selected': 'false', 'data-tab': id, onclick: () => setTab(id) });
+      b.innerHTML = SVG[id]; b.append(label); nav.append(b);
+    });
+  }
+  function setTab(id) {
+    state.tab = id;
+    try { localStorage.setItem('homedesk-tab', id); } catch (e) {}
+    TABS.forEach(([t]) => { $('#p-' + t).hidden = t !== id; });
+    document.querySelectorAll('#nav button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === id)));
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------- to-do ---------- */
+  function dueChip(due) {
+    if (!due) return null;
+    const t = ymd(new Date());
+    const label = due === t ? 'Today' : new Date(due + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return h('span', { class: 'chip' + (due < t ? ' late' : '') }, due < t ? 'Overdue ' + label : label);
+  }
+  function itemRow(it, opts) {
+    const done = !!it.done;
+    return h('div', { class: 'row' + (done ? ' done' : '') },
+      h('button', { class: 'tick', 'aria-label': opts.tickLabel, onclick: () => safe(() => store.patch(it.id, { done: !done })) },
+        (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'none'); s.setAttribute('stroke-width', '3'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', 'M5 12.5l4.5 4.5L19 7.5'); s.append(p); return s; })()),
+      h('div', { class: 'main' }, it.text, opts.extra),
+      opts.research,
+      h('button', { class: 'x', 'aria-label': 'Delete', onclick: () => safe(() => store.remove(it.id)) }, '×'));
+  }
+  function renderTodos() {
+    const all = state.items.filter((i) => i.kind === 'todo');
+    const open = all.filter((i) => !i.done).sort((a, b) => (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : b.createdAt - a.createdAt);
+    const done = all.filter((i) => i.done).sort((a, b) => b.createdAt - a.createdAt);
+    const o = $('#todo-open'); o.replaceChildren();
+    if (!open.length) o.append(h('div', { class: 'empty' }, 'Nothing open. Type a to-do above, with an optional due date.'));
+    open.forEach((i) => o.append(itemRow(i, { tickLabel: 'Mark done', extra: i.due ? [' ', dueChip(i.due)] : null })));
+    const d = $('#todo-done'); d.replaceChildren();
+    done.forEach((i) => d.append(itemRow(i, { tickLabel: 'Mark not done' })));
+    $('#todo-done-wrap').hidden = !done.length;
+    $('#todo-done-sum').textContent = 'Done (' + done.length + ')';
+  }
+
+  /* ---------- buy ---------- */
+  function renderBuy() {
+    const all = state.items.filter((i) => i.kind === 'buy');
+    const open = all.filter((i) => !i.done).sort((a, b) => b.createdAt - a.createdAt);
+    const done = all.filter((i) => i.done).sort((a, b) => b.createdAt - a.createdAt);
+    const o = $('#buy-open'); o.replaceChildren();
+    if (!open.length) o.append(h('div', { class: 'empty' }, 'Your shopping list is empty. Add things as you notice them, then use Ask to compare options.'));
+    open.forEach((i) => o.append(itemRow(i, {
+      tickLabel: 'Mark bought',
+      research: h('button', { class: 'btn ghost small', onclick: () => research(i.text) }, 'Ask')
+    })));
+    const d = $('#buy-done'); d.replaceChildren();
+    done.forEach((i) => d.append(itemRow(i, { tickLabel: 'Mark not bought' })));
+    $('#buy-done-wrap').hidden = !done.length;
+    $('#buy-done-sum').textContent = 'Bought (' + done.length + ')';
+  }
+  function research(text) {
+    setTab('baby');
+    const t = $('#ask-text');
+    t.value = 'I want to buy: ' + text + '. What matters when choosing, what can I skip, and what is a fair price range?';
+    t.focus();
+  }
+
+  /* ---------- spend ---------- */
+  function monthLabel(m) { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }); }
+  function shiftMonth(m, n) { const [y, mo] = m.split('-').map(Number); return ym(new Date(y, mo - 1 + n, 1)); }
+  function monthExpenses() { return state.items.filter((i) => i.kind === 'expense' && (i.date || '').startsWith(state.month)).sort((a, b) => (b.date + b.createdAt) < (a.date + a.createdAt) ? -1 : 1); }
+  function renderSpend() {
+    $('#m-label').textContent = monthLabel(state.month);
+    const list = monthExpenses();
+    const total = list.reduce((s, i) => s + Number(i.amount || 0), 0);
+    $('#m-total').textContent = money(total);
+    const by = {};
+    list.forEach((i) => { const c = i.category || 'Other'; by[c] = (by[c] || 0) + Number(i.amount || 0); });
+    const cats = $('#cats'); cats.replaceChildren();
+    const entries = Object.entries(by).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) cats.append(h('div', { class: 'empty', style: 'padding:6px' }, 'No spending logged for this month.'));
+    entries.forEach(([c, v]) => cats.append(h('div', { class: 'cat' }, h('span', null, c), h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.max(3, Math.round(v / entries[0][1] * 100)) + '%' })), h('span', { class: 'amt' }, money(v)))));
+    const sl = $('#spend-list'); sl.replaceChildren();
+    if (!list.length) sl.append(h('div', { class: 'empty' }, 'Paste a bank SMS or type an amount above. Claude reads the amount, shop and category for you.'));
+    let lastDay = '';
+    list.forEach((i) => {
+      if (i.date !== lastDay) {
+        lastDay = i.date;
+        sl.append(h('div', { class: 'day' }, new Date(i.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })));
+      }
+      sl.append(h('div', { class: 'row' },
+        h('div', { class: 'main' }, i.merchant || i.note || 'Expense', h('div', { class: 'sub' }, [i.category || 'Other', i.note && i.merchant ? ' · ' + i.note : ''])),
+        h('span', { class: 'amt' }, money(i.amount)),
+        h('button', { class: 'x', 'aria-label': 'Delete', onclick: () => safe(() => store.remove(i.id)) }, '×')));
+    });
+  }
+  function fallbackParse(text) {
+    const m = text.replace(/,/g, '').match(/(\d+(?:\.\d{1,2})?)/);
+    if (!m) return [];
+    const rest = text.replace(m[0], '').replace(/\s+/g, ' ').trim();
+    return [{ amount: Number(m[1]), merchant: rest.slice(0, 60), category: 'Other', date: ymd(new Date()), note: '' }];
+  }
+  async function parseExpenses(text) {
+    if (!sample) return fallbackParse(text);
+    try {
+      const arr = await sample.json(
+        'Today is ' + ymd(new Date()) + '. Extract money the user SPENT from the text below (bank or wallet SMS, emails, or a typed note). ' +
+        'Skip OTP codes, balances, deposits, refunds and promotions. Reply with only a JSON array of objects ' +
+        '{"amount": number, "merchant": string, "category": one of ' + JSON.stringify(CATS) + ', "date": "YYYY-MM-DD" (use today if unknown), "note": short string or ""}. ' +
+        'Return [] if there is no spending. Example: [{"amount":18.5,"merchant":"Costco","category":"Baby","date":"' + ymd(new Date()) + '","note":"diapers"}]\n\nText:\n' + text.slice(0, 6000),
+        { modelTier: 'quick' });
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      if (e && e.code === 'cancelled') return [];
+      return fallbackParse(text);
+    }
+  }
+  async function explainMonth() {
+    const list = monthExpenses();
+    const out = $('#sum-out');
+    if (!sample) { toast('Claude is not available on this page.'); return; }
+    if (!list.length) { toast('Nothing logged this month yet.'); return; }
+    out.hidden = false; out.textContent = 'Thinking...';
+    const lines = list.map((i) => i.date + ' | ' + (i.merchant || '') + ' | ' + (i.category || 'Other') + ' | ' + i.amount).join('\n');
+    try {
+      await sample('Here are one household\'s expenses for ' + monthLabel(state.month) + ' (currency ' + cur() + ', date | merchant | category | amount):\n' + lines +
+        '\n\nWrite 3 to 4 short plain-text sentences: where most money went, anything unusual or repeated, and one concrete suggestion. No markdown.',
+        { modelTier: 'quick', onText: ({ text }) => { out.textContent = text; } });
+    } catch (e) { out.textContent = e && e.text ? e.text : 'Could not summarize right now.'; }
+  }
+
+  /* ---------- baby ---------- */
+  const CHIPS = ['Play ideas for his age', 'How much sleep and how many naps?', 'Feeding amounts and schedule', 'What should I buy this month?'];
+  function renderProfile() {
+    const p = state.profile;
+    $('#prof-title').textContent = p.name ? 'About ' + p.name : 'About your baby';
+    $('#prof-age').textContent = ageText();
+    if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#prof-form')) return;
+    $('#prof-name').value = p.name || ''; $('#prof-birth').value = p.birth || ''; $('#prof-cur').value = p.currency || ''; $('#prof-notes').value = p.notes || '';
+  }
+  function renderChat() {
+    const c = $('#chat'); c.replaceChildren();
+    state.chat.forEach((m, idx) => {
+      if (m.role === 'user') c.append(h('div', { class: 'q' }, m.content));
+      else c.append(h('div', { class: 'card a' }, m.content,
+        m.done ? h('button', { class: 'btn ghost small save', onclick: () => saveNote(idx) }, 'Save to notes') : null));
+    });
+  }
+  async function saveNote(idx) {
+    const a = state.chat[idx], q = state.chat[idx - 1];
+    await safe(async () => { await store.add({ kind: 'note', title: (q && q.content || 'Note').slice(0, 80), body: a.content }); toast('Saved to notes'); });
+  }
+  function renderNotes() {
+    const n = $('#notes'); n.replaceChildren();
+    const notes = state.items.filter((i) => i.kind === 'note').sort((a, b) => b.createdAt - a.createdAt);
+    if (!notes.length) n.append(h('div', { class: 'empty' }, 'Save useful answers here so you can find them later.'));
+    notes.forEach((i) => n.append(h('details', { class: 'note' }, h('summary', null, i.title), h('p', null, i.body),
+      h('button', { class: 'btn ghost small', onclick: () => safe(() => store.remove(i.id)) }, 'Delete'))));
+  }
+  let askCtl = null;
+  async function ask(text) {
+    if (!sample) { toast('Claude is not available on this page.'); return; }
+    const p = state.profile;
+    const intro = 'You are a calm, practical assistant for the parent of ' + (p.name || 'a baby') + (ageText() ? ', who is ' + ageText() : '') + '. ' +
+      (p.notes ? 'Parent notes: ' + p.notes + '. ' : '') +
+      'Base advice on guidance from bodies like WHO, AAP and NHS and name the source when it matters. Keep answers under 180 words unless asked for more. ' +
+      'Use plain text with short lines and "-" bullets, no markdown symbols. For shopping questions give the 3 things that matter, what to skip, and a rough price range in ' + cur() + '. ' +
+      'If something could be a medical concern, say when to call a pediatrician. Do not diagnose.';
+    state.chat.push({ role: 'user', content: text });
+    const reply = { role: 'assistant', content: 'Thinking...', done: false };
+    state.chat.push(reply); renderChat();
+    const turns = state.chat.slice(0, -1).slice(-8).map((m) => ({ role: m.role, content: m.content }));
+    askCtl = new AbortController();
+    $('#ask-btn').hidden = true; $('#ask-stop').hidden = false;
+    try {
+      await sample([{ role: 'user', content: intro }].concat(turns), {
+        cache: false, signal: askCtl.signal,
+        onText: ({ text: t }) => { reply.content = t; renderChat(); }
+      });
+      reply.done = true;
+    } catch (e) {
+      reply.content = e && e.text ? e.text : (e && e.code === 'rate_limited' ? 'Too many requests. Try again in a minute.' : 'Could not get an answer right now.');
+      reply.done = !!(e && e.text);
+    } finally {
+      askCtl = null; $('#ask-btn').hidden = false; $('#ask-stop').hidden = true; renderChat();
+    }
+  }
+  async function planDay() {
+    const open = state.items.filter((i) => i.kind === 'todo' && !i.done);
+    const out = $('#plan-out');
+    if (!sample) { toast('Claude is not available on this page.'); return; }
+    if (!open.length) { toast('No open to-dos to plan.'); return; }
+    out.hidden = false; out.textContent = 'Thinking...';
+    const lines = open.map((i) => '- ' + i.text + (i.due ? ' (due ' + i.due + ')' : '')).join('\n');
+    try {
+      await sample('Today is ' + ymd(new Date()) + '. A parent with a baby has these open to-dos:\n' + lines +
+        '\n\nPick the 3 to do first today and say why in one short line each, then list what can wait. Plain text, no markdown, under 120 words.',
+        { modelTier: 'quick', onText: ({ text }) => { out.textContent = text; } });
+    } catch (e) { out.textContent = e && e.text ? e.text : 'Could not plan right now.'; }
+  }
+
+  /* ---------- wiring ---------- */
+  function renderAll() { renderTodos(); renderBuy(); renderSpend(); renderNotes(); renderProfile(); }
+
+  function wire() {
+    $('#todo-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = $('#todo-text').value.trim(); if (!text) return;
+      const due = $('#todo-due').value || null;
+      $('#todo-text').value = ''; $('#todo-due').value = '';
+      safe(() => store.add({ kind: 'todo', text, due, done: false }));
+    });
+    $('#buy-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = $('#buy-text').value.trim(); if (!text) return;
+      $('#buy-text').value = '';
+      safe(() => store.add({ kind: 'buy', text, done: false }));
+    });
+    $('#spend-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = $('#spend-text').value.trim(); if (!text) return;
+      const btn = $('#spend-add'); btn.disabled = true; btn.textContent = 'Reading...';
+      const found = (await parseExpenses(text)).filter((x) => x && Number(x.amount) > 0);
+      if (!found.length) toast('No spending found in that text.');
+      else {
+        await safe(async () => {
+          for (const x of found) {
+            await store.add({ kind: 'expense', amount: Math.round(Number(x.amount) * 100) / 100, merchant: String(x.merchant || '').slice(0, 80), category: CATS.includes(x.category) ? x.category : 'Other', date: /^\d{4}-\d{2}-\d{2}$/.test(x.date) ? x.date : ymd(new Date()), note: String(x.note || '').slice(0, 80) });
+          }
+          $('#spend-text').value = '';
+          state.month = ym(new Date());
+          toast('Added ' + found.length + (found.length > 1 ? ' expenses' : ' expense'));
+        });
+      }
+      btn.disabled = false; btn.textContent = 'Add';
+    });
+    $('#m-prev').addEventListener('click', () => { state.month = shiftMonth(state.month, -1); $('#sum-out').hidden = true; renderSpend(); });
+    $('#m-next').addEventListener('click', () => { state.month = shiftMonth(state.month, 1); $('#sum-out').hidden = true; renderSpend(); });
+    $('#sum-month').addEventListener('click', explainMonth);
+    $('#plan-day').addEventListener('click', planDay);
+    $('#prof-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const p = { name: $('#prof-name').value.trim(), birth: $('#prof-birth').value || '', currency: $('#prof-cur').value.trim() || '$', notes: $('#prof-notes').value.trim() };
+      state.profile = p; renderAll();
+      if (db) safe(async () => { await db.doc('settings/profile').set(p); toast('Saved'); });
+      else toast('Saved for this visit only');
+      $('#profile').open = false;
+    });
+    $('#ask-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const t = $('#ask-text').value.trim(); if (!t || askCtl) return;
+      $('#ask-text').value = ''; ask(t);
+    });
+    $('#ask-stop').addEventListener('click', () => askCtl && askCtl.abort());
+    const chips = $('#chips');
+    CHIPS.forEach((c) => chips.append(h('button', { type: 'button', onclick: () => { $('#ask-text').value = c; $('#ask-text').focus(); } }, c)));
+  }
+
+  async function boot() {
+    $('#today').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    buildNav(); wire();
+    let tab = 'todo'; try { tab = localStorage.getItem('homedesk-tab') || 'todo'; } catch (e) {}
+    setTab(TABS.some(([t]) => t === tab) ? tab : 'todo');
+    renderAll();
+    const c = window.claude;
+    if (!c || !c.use) { $('#banner').hidden = false; return; }
+    sample = await c.use('sample').catch(() => null);
+    db = await c.use('db').catch(() => null);
+    if (!db) { $('#banner').hidden = false; return; }
+    db.collection('items').onSnapshot((snap) => { state.items = snap.docs.map((d) => Object.assign({ id: d.id }, d.data())); renderAll(); },
+      () => toast('Lost connection to your saved data. Reload the page.'));
+    db.doc('settings/profile').onSnapshot((s) => { state.profile = s.exists ? s.data() : {}; renderAll(); }, () => {});
+  }
+  boot();
+})();
+</script>

@@ -1,0 +1,159 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Parser tests</title>
+<pre id="out">running...</pre>
+<script src="../Parsers.gs"></script>
+<script src="../Ledger.gs"></script>
+<script>
+// Samples are rewritten from real alert wording. Names and account numbers are made up.
+var ctx = {
+  accounts: [
+    { id: 'dbs-savings', name: 'DBS Savings', type: 'bank', bank: 'DBS', last4: '1111' },
+    { id: 'uob-account', name: 'UOB Account', type: 'bank', bank: 'UOB', last4: '2222' },
+    { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', last4: '3333' }
+  ],
+  ownNames: ['jane tan'],
+  rules: [
+    { pattern: 'SHENG SIONG', name: 'Sheng Siong', category: 'Groceries', tag: 'supermarket' },
+    { pattern: 'BUS/MRT', name: 'Public transport', category: 'Transport', tag: 'commute' },
+    { pattern: 're:^GV\\b', name: 'Golden Village', category: 'Entertainment', tag: 'movies' }
+  ]
+};
+var DBS = 'ibanking.alert@dbs.com', UOB = 'unialerts@uobgroup.com';
+
+var cases = [
+  { n: 'DBS PayNow to a shop',
+    from: DBS, subj: 'iBanking Alerts',
+    body: '| Dear Customer, We refer to your PAYNOW dated 27 Oct. We are pleased to confirm that the transaction was completed. |\n| Date & Time: | 27 Oct 12:20 (SGT) |\n| Amount: | SGD9.40 |\n| From: | DBS Savings Plus Account A/C ending 1111 |\n| To: | LS & CO PRIVATE LIMITED (UEN ending X999) |\n\nIf unauthorised, please call our DBS hotline.',
+    expect: { direction: 'out', amount: 9.4, account: 'dbs-savings', merchantRaw: 'LS & CO PRIVATE LIMITED', status: 'review' } },
+  { n: 'DBS NETS Scan & Pay',
+    from: DBS, subj: 'digibank Alert - Successful NETS Scan & Pay',
+    body: '| Transaction Ref: 100000000000001 Dear Customer, Your NETS Scan & Pay transaction on 13 Oct 11:59 SGT was successful. |\n| Date & Time: 13 Oct 11:59 SGT |\n| Amount: S$5.30 |\n| From: DBS/POSB Account ending 1111 |\n| To: FOOD PALATE |\n\nIf unauthorised, call DBS hotline.',
+    expect: { direction: 'out', amount: 5.3, account: 'dbs-savings', merchantRaw: 'FOOD PALATE', channel: 'NETS' } },
+  { n: 'DBS NETS with asterisks and invisible characters (as Gmail renders it)',
+    from: DBS, subj: 'digibank Alert - Successful NETS Scan & Pay',
+    body: 'digibank alert ‌ ‌ ‌ [image: DBS | Live more, Bank less] Transaction Ref: 100000000000001 Dear Customer, Your NETS Scan & Pay transaction on 13 Oct 11:59 SGT was successful. *Date & Time: *13 Oct 11:59 SGT *Amount: *S$5.30 *From: *DBS/POSB Account ending 1111 *To: *FOOD PALATE If unauthorised, call DBS hotline.',
+    expect: { direction: 'out', amount: 5.3, account: 'dbs-savings', merchantRaw: 'FOOD PALATE', channel: 'NETS' } },
+  { n: 'DBS FAST to own UOB account',
+    from: DBS, subj: 'iBanking Alerts',
+    body: '| Transaction Ref: 10000000000000000001 Dear Customer, We refer to your FAST Interbank Funds Transfer transaction dated 11 Oct. |\n| Date & Time: | 11 Oct 14:49 (SGT) |\n| Amount: | SGD1600.00 |\n| From: | DBS Savings Plus Account A/C ending 1111 |\n| To: | jane tan A/C ending 2222 |\n\nIf unauthorised, please call our DBS hotline.',
+    expect: { direction: 'transfer', amount: 1600, account: 'dbs-savings', toAccount: 'uob-account', status: 'ok' } },
+  { n: 'DBS transfer to another person',
+    from: DBS, subj: 'iBanking Alerts',
+    body: '| Dear Customer, Your Funds Transfer to Other DBS/POSB account dated 08 Oct has been completed. |\n| Date & Time: | 08 Oct19:09(SGT) |\n| Amount: | SGD 560.00 |\n| From: | DBS Savings Plus Account A/C ending 1111 |\n| To: | someone (A/C ending 9999) |\n\nIf unauthorised, please call DBS hotline.',
+    expect: { direction: 'out', amount: 560, account: 'dbs-savings', merchantRaw: 'someone' } },
+  { n: 'DBS incoming from self',
+    from: DBS, subj: "digibank Alerts - You've received a transfer",
+    body: 'Transaction Ref: 0000000000001 Dear Customer, You have received SGD 100000.00 via FAST transfer on 29 Sep 2026 08:41 SGT. From: JANE TAN To: Your DBS/ POSB account ending 1111 Didn’t expect these funds?',
+    expect: { direction: 'transfer_in', amount: 100000, account: 'dbs-savings' } },
+  { n: 'DBS incoming, wording variant with asterisks',
+    from: DBS, subj: "digibank Alerts - You've received a transfer",
+    body: 'Transaction Ref: 0126 Dear Customer, You have received SGD 25.00 via PayNow on 29 Sep 2026 08:41 SGT. *From: *SOME PERSON *To: *Your DBS/POSB account ending 1111 Didn’t expect these funds?',
+    expect: { direction: 'in', amount: 25, account: 'dbs-savings', merchantRaw: 'SOME PERSON' } },
+  { n: 'DBS GIRO deduction to self',
+    from: DBS, subj: 'digibank Alerts - Successful GIRO deduction',
+    body: '| Details |\n| Date and Time: | 27 Oct 12:23 (SGT) |\n| From: | DBS/POSB A/C ending 1111 |\n| Paying to: | JANE TAN |\n| Payment amount: | SGD 50.00 |\n| Bill Reference number: | fa7a1d31 |',
+    expect: { direction: 'transfer', amount: 50, account: 'dbs-savings', status: 'review' } },
+  { n: 'DBS eGIRO setup is ignored', from: DBS, subj: 'Transaction alert', body: 'You have submitted an eGIRO application for SOME COMPANY on 10/Oct/2026.', expectKind: 'ignore' },
+  { n: 'DBS on hold is ignored', from: DBS, subj: 'Your transfer is on hold', body: 'Your FAST Transfer below seems unusual. We have put it on hold.', expectKind: 'ignore' },
+  { n: 'UOB card, rule match',
+    from: UOB, subj: 'UOB - Transaction Alert',
+    body: 'A transaction of SGD 44.82 was made with your UOB Card ending 3333 on 26/10/26 at SHENG SIONG SUPERMARKET -. If unauthorised, call 24/7 Fraud Hotline now',
+    expect: { direction: 'out', amount: 44.82, account: 'uob-card', merchant: 'Sheng Siong', category: 'Groceries', tag: 'supermarket', status: 'ok' } },
+  { n: 'UOB card, regex rule',
+    from: UOB, subj: 'UOB - Transaction Alert',
+    body: 'A transaction of SGD 16.00 was made with your UOB Card ending 3333 on 24/10/26 at GV FUNAN. If unauthorised, call 24/7 Fraud Hotline now',
+    expect: { merchant: 'Golden Village', category: 'Entertainment' } },
+  { n: 'UOB card, unknown merchant needs review',
+    from: UOB, subj: 'UOB - Transaction Alert',
+    body: 'A transaction of SGD 17.80 was made with your UOB Card ending 3333 on 22/10/26 at Beard Papa&#39;s - Plaza Sing. If unauthorised, call 24/7 Fraud Hotline now',
+    expect: { amount: 17.8, merchantRaw: "Beard Papa's - Plaza Sing", status: 'review' } },
+  { n: 'UOB reversal',
+    from: UOB, subj: 'Your transaction has been reversed',
+    body: 'A transaction of 6.93 SGD made with your UOB card ending 3333 on 11 Oct 26, 3:29PM at SHOPEE SG MP has been reversed.',
+    expect: { direction: 'refund', amount: 6.93, account: 'uob-card' } },
+  { n: 'UOB GIRO to card centre is a card payment',
+    from: UOB, subj: 'UOB Transaction Alert',
+    body: 'A transaction of SGD1593.82 was debited from your a/c XXXXXX2222 at 09:31PM 22-Oct-2026, SGT. Ref: Inward DR - GIRO, UOB CARD CENTRE, COLL 884080983333, 4265 884080983333. If unauthorised, call UOB',
+    expect: { direction: 'card_payment', amount: 1593.82, account: 'uob-account', toAccount: 'uob-card', status: 'ok' } },
+  { n: 'UOB GIRO to a payee is spending',
+    from: UOB, subj: 'UOB Transaction Alert',
+    body: 'A transaction of SGD300.00 was debited from your a/c XXXXXX2222 at 04:50PM 19-Oct-2026, SGT. Ref: Inward DR - GIRO, MINISTRY OF MANPOWER, FWLV 2025, FWLevy-S1234567A-16102026. If unauthorised, call UOB',
+    expect: { direction: 'out', amount: 300, account: 'uob-account', merchantRaw: 'MINISTRY OF MANPOWER' } },
+  { n: 'UOB PayNow received has no sender',
+    from: UOB, subj: 'UOB-PayNow transfer received',
+    body: 'You have received SGD 10000.00 in your PayNow-linked account ending 2222 on 29-SEP-2026 08:42AM. UOB EMAIL DISCLAIMER: Any person',
+    expect: { direction: 'in', amount: 10000, account: 'uob-account', status: 'review' } },
+  { n: 'UOB foreign currency card purchase',
+    from: UOB, subj: 'UOB - Transaction Alert',
+    body: 'A transaction of JPY 5900.00 was made with your UOB Card ending 3333 on 30/09/26 at AMAZON.CO.JP. If unauthorised, call 24/7 Fraud Hotline now',
+    expect: { direction: 'out', amount: '', account: 'uob-card', status: 'review', merchantRaw: 'AMAZON.CO.JP', note: 'JPY 5900.00 (enter the SGD amount from your statement)' } },
+  { n: 'UOB eStatement notice is ignored', from: UOB, subj: 'Your eStatement/eAdvice is ready for viewing', body: 'Dear Customer, your Credit Card eStatement is ready for viewing.', expectKind: 'ignore' },
+  { n: 'UOB payment received is ignored', from: UOB, subj: 'UOB-Credit Card Payment Received', body: 'Total payment received as of your last statement for UOB ONE CARD Card is $ 1593.82.', expectKind: 'ignore' },
+  { n: 'UOB unknown wording is flagged', from: UOB, subj: 'UOB - Something new', body: 'We changed our terms.', expectKind: 'unknown' }
+];
+
+var fails = [], passed = 0;
+cases.forEach(function (c) {
+  var p = parseAlert_(c.from, c.subj, c.body);
+  if (c.expectKind) {
+    if (p.kind === c.expectKind) passed++; else fails.push(c.n + ': expected kind ' + c.expectKind + ', got ' + p.kind);
+    return;
+  }
+  if (p.kind !== 'txn') { fails.push(c.n + ': not parsed (' + p.kind + ')'); return; }
+  var row = buildRow_(p, ctx), bad = [];
+  Object.keys(c.expect).forEach(function (k) {
+    if (row[k] !== c.expect[k]) bad.push(k + ' expected ' + JSON.stringify(c.expect[k]) + ' got ' + JSON.stringify(row[k]));
+  });
+  if (bad.length) fails.push(c.n + ': ' + bad.join('; ')); else passed++;
+});
+// ---- Ledger ----
+(function () {
+  var accts = [
+    { id: 'dbs', name: 'DBS', type: 'bank', bank: 'DBS', openingBalance: 1000 },
+    { id: 'uob', name: 'UOB', type: 'bank', bank: 'UOB', openingBalance: 500 },
+    { id: 'card', name: 'Card', type: 'card', bank: 'UOB', openingBalance: 0 }
+  ];
+  var rows = [
+    { datetime: '2026-10-02T10:00:00', direction: 'out', amount: 20, account: 'card', category: 'Dining', tag: 'hawker', status: 'ok' },
+    { datetime: '2026-10-05T10:00:00', direction: 'out', amount: 30, account: 'card', category: 'Groceries', status: 'ok' },
+    { datetime: '2026-10-05T11:00:00', direction: 'refund', amount: 5, account: 'card', category: 'Dining', status: 'ok' },
+    { datetime: '2026-10-06T09:00:00', direction: 'card_payment', amount: 25, account: 'uob', toAccount: 'card', category: 'Transfer', status: 'ok' },
+    { datetime: '2026-10-07T10:00:00', direction: 'out', amount: 10, account: 'card', category: 'Transport', status: 'ok' },
+    { datetime: '2026-10-08T10:00:00', direction: 'transfer', amount: 200, account: 'dbs', toAccount: 'uob', category: 'Transfer', status: 'ok' },
+    { datetime: '2026-10-08T10:01:00', direction: 'transfer_in', amount: 200, account: 'uob', category: 'Transfer', status: 'dup' },
+    { datetime: '2026-10-09T10:00:00', direction: 'in', amount: 3000, account: 'dbs', category: 'Income', status: 'ok' },
+    { datetime: '2026-10-10T10:00:00', direction: 'adjust', amount: -12.34, account: 'dbs', status: 'ok' },
+    { datetime: '2026-10-11T10:00:00', direction: 'out', amount: '', account: 'dbs', category: '', status: 'review' },
+    { datetime: '2026-09-30T10:00:00', direction: 'out', amount: 99, account: 'dbs', category: 'Dining', status: 'ok' }
+  ];
+  var b = balances_(accts, rows), m = monthSummary_(rows, '2026-10');
+  var byId = {}; b.accounts.forEach(function (a) { byId[a.id] = a; });
+  function eq(name, got, want) {
+    if (JSON.stringify(got) === JSON.stringify(want)) passed++;
+    else fails.push('Ledger ' + name + ': expected ' + JSON.stringify(want) + ' got ' + JSON.stringify(got));
+  }
+  eq('dbs balance', byId.dbs.balance, 3688.66);
+  eq('uob balance (dup ignored, card payment out)', byId.uob.balance, 675);
+  eq('card balance', byId.card.balance, -30);
+  eq('card since last payment', byId.card.sinceLastPayment, 10);
+  eq('total money excludes card', b.totalMoney, 4363.66);
+  eq('card owed', b.cardOwed, 30);
+  eq('month total (purchases minus refunds, blank amount counts 0)', m.total, 55);
+  eq('month categories', m.byCategory, [{ name: 'Groceries', total: 30 }, { name: 'Dining', total: 15 }, { name: 'Transport', total: 10 }, { name: 'Uncategorised', total: 0 }]);
+  eq('month tags', m.byTag, [{ name: 'hawker', total: 20 }]);
+  eq('review count', m.reviewCount, 1);
+  eq('other month excluded', monthSummary_(rows, '2026-09').total, 99);
+  eq('delta: card purchase on the card', deltaFor_(rows[0], 'card'), -20);
+  eq('delta: refund on the card', deltaFor_(rows[2], 'card'), 5);
+  eq('delta: card payment, bank side', deltaFor_(rows[3], 'uob'), -25);
+  eq('delta: card payment, card side', deltaFor_(rows[3], 'card'), 25);
+  eq('delta: card payment, unrelated account', deltaFor_(rows[3], 'dbs'), 0);
+  eq('delta: own transfer, receiving side', deltaFor_(rows[5], 'uob'), 200);
+  eq('delta: duplicate counts for nothing', deltaFor_(rows[6], 'uob'), 0);
+  eq('delta: blank amount', deltaFor_(rows[9], 'dbs'), 0);
+})();
+
+document.getElementById('out').textContent = passed + ' passed, ' + fails.length + ' failed\n' + fails.join('\n');
+document.title = fails.length ? 'FAIL' : 'PASS';
+</script>
