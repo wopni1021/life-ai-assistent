@@ -35,6 +35,7 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 12px 96px;
+  overscroll-behavior-y: contain;
 }
 .wrap { max-width: 560px; margin: 0 auto; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -47,7 +48,11 @@ h2 { font-size: 15px; font-weight: 600; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 
-header.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0 12px; }
+header.top { display: flex; align-items: center; gap: 4px; padding: 6px 0 12px; }
+.top-title { flex: 1; min-width: 0; }
+#sync-status { min-height: 18px; }
+.ptr { height: 0; overflow: hidden; display: grid; place-items: center; font-size: 13px; color: var(--muted); }
+.filters { margin-bottom: 12px; }
 .icon-btn { width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); display: grid; place-items: center; }
 .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -61,7 +66,6 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .hero .owed b { color: var(--warn); }
 
 .notice { padding: 11px 14px; border-radius: 12px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
-button.notice { width: 100%; border: 0; text-align: left; font-weight: 600; }
 .notice.info { background: var(--accent-soft); color: var(--accent); }
 
 .list > * + * { border-top: 1px solid var(--line); }
@@ -111,7 +115,6 @@ input[type=text], input[type=search], input[type=number], input[type=date], sele
 .editor .head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
 .editor .merchant { font-family: var(--font-display); font-weight: 600; font-size: 17px; overflow-wrap: anywhere; }
 .editor .amount { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
-.progress { font-size: 13px; color: var(--muted); padding: 0 4px 6px; }
 
 .controls { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .controls select { flex: 0 0 150px; }
@@ -130,13 +133,12 @@ input[type=text], input[type=search], input[type=number], input[type=date], sele
 
 nav.tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--surface); border-top: 1px solid var(--line);
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(3, 1fr);
   padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
 }
 nav.tabs button { position: relative; border: 0; background: transparent; color: var(--muted); display: grid; justify-items: center; gap: 2px; padding: 6px 0; font-size: 12px; font-weight: 600; border-radius: 10px; }
 nav.tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 nav.tabs button[aria-selected="true"] { color: var(--accent); }
-.badge { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: #fff; font-size: 11px; display: grid; place-items: center; }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 99px; font-size: 14px; max-width: calc(100% - 32px); }
 .setup { max-width: 440px; margin: 8vh auto 0; padding: 22px 18px; display: flex; flex-direction: column; gap: 14px; }

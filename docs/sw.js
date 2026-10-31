@@ -1,5 +1,8 @@
-/* Caches the app shell so it opens fast. Money data is never cached here. Bump VERSION when files change. */
-var VERSION = 'v2';
+/*
+ * Opens the app from the phone at once, then refreshes the saved files in the background,
+ * so a published update appears on the next open. Money data is never cached here.
+ */
+var VERSION = 'v3';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'mock-api.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', function (e) {
@@ -17,11 +20,17 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   var url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  e.respondWith(
-    fetch(e.request).then(function (res) {
-      var copy = res.clone();
-      caches.open(VERSION).then(function (c) { c.put(e.request, copy); });
-      return res;
-    }).catch(function () { return caches.match(e.request); })
-  );
+  e.respondWith(caches.open(VERSION).then(function (c) {
+    return c.match(e.request, { ignoreSearch: true }).then(function (hit) {
+      var fresh = fetch(e.request).then(function (res) {
+        if (res.ok) c.put(e.request, res.clone());
+        return res;
+      });
+      if (hit) {
+        e.waitUntil(fresh.catch(function () {}));
+        return hit;
+      }
+      return fresh;
+    });
+  }));
 });

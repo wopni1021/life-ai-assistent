@@ -1,6 +1,6 @@
 /**
  * Expense tracker: reads bank alert emails from Gmail and writes them to this spreadsheet.
- * Run setup() once. After that, checkMail() runs every minute by itself.
+ * Run setup() once. The phone app fetches new alerts when it opens (see fetchNew_ and the sync action in Api.gs).
  */
 
 var TABS = {
@@ -12,7 +12,9 @@ var TABS = {
   Seen: ['id', 'seenAt']
 };
 
-var SEARCH_QUERY = 'from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com) newer_than:2d';
+var ALERT_SENDERS = 'from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com)';
+var FETCH_OVERLAP_SECONDS = 3600;
+var FIRST_FETCH_DAYS = 3;
 
 var SEED_RULES = [
   ['SHENG SIONG', 'Sheng Siong', 'Groceries', 'supermarket'],
@@ -33,7 +35,7 @@ var SEED_RULES = [
   ['MINISTRY OF MANPOWER', 'MOM levy', 'Bills', 'levy']
 ];
 
-/** Run once from the editor. Creates the tabs, starter rules and the one-minute trigger. */
+/** Run once from the editor. Creates the tabs and starter rules. */
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   Object.keys(TABS).forEach(function (name) {
@@ -48,9 +50,11 @@ function setup() {
 
   var settings = ss.getSheetByName('Settings');
   if (settings.getLastRow() === 1) {
-    settings.getRange(2, 1, 2, 2).setValues([
+    settings.getRange(2, 1, 4, 2).setValues([
       ['ownNames', 'type your name as it appears in bank alerts, separate several with commas'],
-      ['currency', 'SGD']
+      ['currency', 'SGD'],
+      ['defaultCategory', 'Dining'],
+      ['defaultTransferCategory', 'Other']
     ]);
   }
   var accounts = ss.getSheetByName('Accounts');
@@ -62,11 +66,24 @@ function setup() {
     ]);
   }
 
+  SpreadsheetApp.getUi().alert('Setup done. Fill in the Accounts tab (last4) and Settings tab (ownNames), then run checkMail once to test.');
+}
+
+/** Run once to stop the old every-minute check. The app now fetches when it opens. */
+function removeTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'checkMail') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('checkMail').timeBased().everyMinutes(1).create();
-  SpreadsheetApp.getUi().alert('Setup done. Fill in the Accounts tab (last4) and Settings tab (ownNames), then run checkMail once to test.');
+}
+
+/** Any change to the data gets a new version, so the app knows when its saved copy is out of date. */
+function bumpVersion_() {
+  PropertiesService.getScriptProperties().setProperty('dataVersion', String(Date.now()));
+}
+
+/** Simple trigger: hand edits in the sheet also count as a change. */
+function onEdit() {
+  bumpVersion_();
 }
 
 function rows_(name) {
@@ -88,18 +105,37 @@ function loadContext_() {
     return s && s.indexOf('type your name') !== 0;
   });
   var accounts = rows_('Accounts').map(function (a) { a.last4 = String(a.last4 || '').trim(); return a; });
-  return { accounts: accounts, ownNames: ownNames, rules: rows_('Rules') };
+  return {
+    accounts: accounts, ownNames: ownNames, rules: rows_('Rules'),
+    defaultCategory: String(settings.defaultCategory || 'Dining'),
+    defaultTransferCategory: String(settings.defaultTransferCategory || 'Other')
+  };
 }
 
-/** Checks Gmail for new bank alerts. Safe to run any time; already-seen messages are skipped. */
+/** Checks Gmail for new bank alerts by hand. The app does the same on open. */
 function checkMail() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return;
   try {
-    ingest_(SEARCH_QUERY);
+    fetchNew_();
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Reads alerts that arrived since the last check, however long ago that was.
+ * The overlap covers mail that arrives during a check; seen ids stop any duplicates.
+ * Call it while holding the script lock. Returns the number of transactions added.
+ */
+function fetchNew_() {
+  var props = PropertiesService.getScriptProperties();
+  var started = Math.floor(Date.now() / 1000);
+  var last = Number(props.getProperty('lastCheckedAt')) || started - FIRST_FETCH_DAYS * 86400;
+  var since = last - FETCH_OVERLAP_SECONDS;
+  var added = ingest_(ALERT_SENDERS + ' after:' + since, new Date(since * 1000));
+  props.setProperty('lastCheckedAt', String(started));
+  return added;
 }
 
 /** One-time import of recent history, for example backfill(30). Run from the editor. */
@@ -108,16 +144,16 @@ function backfill(days) {
   var lock = LockService.getScriptLock();
   lock.waitLock(60000);
   try {
-    ingest_('from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com) newer_than:' + d + 'd');
+    ingest_(ALERT_SENDERS + ' newer_than:' + d + 'd');
   } finally {
     lock.releaseLock();
   }
 }
 
 /**
- * Re-reads every row with status "review" and classifies it again with the current Accounts,
- * Settings and Rules tabs. Run it after adding rules or filling in the Accounts tab.
- * Rows you already categorised by hand (category not empty) are left alone, and amounts you typed are kept.
+ * Applies the current Rules tab to "guess" rows, and re-reads "review" rows with the current
+ * Accounts, Settings and Rules tabs. Run it after adding rules or filling in the Accounts tab.
+ * A category you typed by hand is kept unless a rule matches, and amounts you typed are kept.
  */
 function reapplyRules() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Transactions');
@@ -130,6 +166,16 @@ function reapplyRules() {
   var ctx = loadContext_();
   var changed = 0;
   vals.forEach(function (row) {
+    if (row[col.status] === 'guess') {
+      var rule = matchRule_(row[col.merchantRaw], ctx.rules);
+      if (!rule) return;
+      row[col.merchant] = rule.name || row[col.merchant];
+      row[col.category] = rule.category || row[col.category];
+      row[col.tag] = rule.tag || row[col.tag];
+      row[col.status] = 'ok';
+      changed++;
+      return;
+    }
     if (row[col.status] !== 'review') return;
     var oldCategory = row[col.category], oldTag = row[col.tag], oldMerchant = row[col.merchant];
     var msg;
@@ -141,10 +187,11 @@ function reapplyRules() {
     var r = buildRow_(p, ctx);
     ['direction', 'account', 'toAccount', 'status'].forEach(function (k) { row[col[k]] = r[k]; });
     // Keep what you typed by hand when no rule gives a value.
-    row[col.category] = r.category || oldCategory;
+    var isDefault = r.status === 'guess';
+    row[col.category] = (isDefault && oldCategory) ? oldCategory : (r.category || oldCategory);
     row[col.tag] = r.tag || oldTag;
     row[col.merchant] = r.merchant || oldMerchant;
-    if (row[col.status] === 'review' && !r.category && oldCategory && r.account) row[col.status] = 'ok';
+    if (isDefault && oldCategory) row[col.status] = 'ok';
     if (!row[col.merchantRaw]) row[col.merchantRaw] = r.merchantRaw;
     if (!row[col.note]) row[col.note] = r.note || '';
     changed++;
@@ -152,10 +199,25 @@ function reapplyRules() {
   if (changed) {
     range.setValues(vals);
     markDuplicateTransfers_();
+    bumpVersion_();
   }
 }
 
-function ingest_(query) {
+/** Every thread matching the query. Gmail returns at most 200 per call. */
+function searchAll_(query) {
+  var all = [], page;
+  do {
+    page = GmailApp.search(query, all.length, 200);
+    all = all.concat(page);
+  } while (page.length === 200);
+  return all;
+}
+
+/** notBefore is optional: Gmail returns whole threads, so older messages in them are skipped. Returns transactions added. */
+function ingest_(query, notBefore) {
+  var threads = searchAll_(query);
+  if (!threads.length) return 0;
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var txSheet = ss.getSheetByName('Transactions');
   var seenSheet = ss.getSheetByName('Seen');
@@ -168,12 +230,12 @@ function ingest_(query) {
   });
 
   var msgs = [];
-  GmailApp.search(query, 0, 200).forEach(function (th) {
-    th.getMessages().forEach(function (m) {
-      if (!seen[m.getId()]) msgs.push(m);
+  GmailApp.getMessagesForThreads(threads).forEach(function (list) {
+    list.forEach(function (m) {
+      if (!seen[m.getId()] && (!notBefore || m.getDate() >= notBefore)) msgs.push(m);
     });
   });
-  if (!msgs.length) return;
+  if (!msgs.length) return 0;
   msgs.sort(function (a, b) { return a.getDate() - b.getDate(); });
 
   var ctx = loadContext_();
@@ -201,8 +263,12 @@ function ingest_(query) {
   append_(txSheet, txRows);
   append_(seenSheet, seenRows);
   append_(unSheet, unRows);
-  if (txRows.length) markDuplicateTransfers_();
+  if (txRows.length) {
+    markDuplicateTransfers_();
+    bumpVersion_();
+  }
   pruneSeen_(seenSheet);
+  return txRows.length;
 }
 
 function append_(sh, rows) {

@@ -193,9 +193,11 @@ function matchRule_(raw, rules) {
 }
 
 /**
- * ctx = { accounts: [{id, name, type, bank, last4}], ownNames: [...], rules: [{pattern, name, category, tag}] }
+ * ctx = { accounts: [{id, name, type, bank, last4}], ownNames: [...], rules: [{pattern, name, category, tag}],
+ *         defaultCategory, defaultTransferCategory }
  * Returns a Transactions row (without id, datetime, note, createdAt).
  * direction values: out | in | refund | transfer | transfer_in | card_payment
+ * status values: ok | guess (default category, fix when convenient) | review (a number would be wrong) | dup
  */
 function buildRow_(p, ctx) {
   var acct = findAccount_(ctx.accounts, p.bank, p.last4, p.accountType);
@@ -227,8 +229,13 @@ function buildRow_(p, ctx) {
       row.category = r.category || ''; row.tag = r.tag || '';
     } else {
       row.merchant = tidyName_(row.merchantRaw);
-      row.category = p.direction === 'in' ? 'Income' : '';
-      if (p.direction !== 'in') row.status = 'review';
+      if (p.direction === 'in') {
+        row.category = 'Income';
+      } else {
+        var purchase = p.channel === 'Card' || p.channel === 'NETS' || p.channel === 'PayNow';
+        row.category = purchase ? (ctx.defaultCategory || 'Dining') : (ctx.defaultTransferCategory || 'Other');
+        row.status = 'guess';
+      }
     }
   }
   if (!acct || p.amount === '') row.status = 'review';

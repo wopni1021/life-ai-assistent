@@ -1,6 +1,6 @@
 # Set up the email reader (about 15 minutes, on the Mac)
 
-This creates your expense sheet and a script that reads DBS and UOB alert emails from your own Gmail every minute. It runs inside your Google account. Nothing is sent anywhere else.
+This creates your expense sheet and a script that reads DBS and UOB alert emails from your own Gmail whenever the phone app opens. It runs inside your Google account. Nothing is sent anywhere else.
 
 ## 1. Create the sheet and script
 1. Go to https://sheets.new and name the sheet "Life Expenses".
@@ -26,9 +26,9 @@ This creates your expense sheet and a script that reads DBS and UOB alert emails
 
 ## 4. Test
 1. Run `backfill` (it imports the last 30 days of alerts). Check the Transactions tab.
-2. Rows with status `review` need a category: add the merchant to the Rules tab (pattern, clean name, category, tag) and it applies to future emails.
+2. Merchants with no rule go to a default category with status `guess` (`defaultCategory` and `defaultTransferCategory` in the Settings tab; without them, Dining and Other). Fix them when you like, in the app or by adding a row to the Rules tab. Status `review` means a number is missing, such as the SGD amount of a foreign purchase.
 3. Emails the script could not read go to the Unparsed tab. Tell the assistant what they look like.
-4. New alerts now arrive within about a minute without you doing anything. To stop it, delete the trigger in the Apps Script clock icon.
+4. New alerts are fetched when you open the app or pull down to refresh. Run `checkMail` to fetch by hand. After adding rules in the sheet, run `reapplyRules`.
 
 ## 5. Turn on the phone app's connection (second install step)
 1. In Apps Script, add two new script files named `Ledger` and `Api` and paste in `Ledger.gs` and `Api.gs`. Replace `appsscript.json` with the new version (it now has a `webapp` block). Save.

@@ -27,7 +27,16 @@
     del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
   var cfg = { url: store.get('le_url') || '', token: store.get('le_token') || '' };
-  var state = { tab: store.get('le_tab') || 'home', reviewCount: 0, month: null, query: '', review: null, catsCache: null, account: null };
+  var state = { tab: store.get('le_tab') || 'home', month: null, query: '', filter: 'all', account: null };
+  if (state.tab === 'review') state.tab = 'home';
+
+  /* Saved copy of the last sync. A cache on this phone only; the sheet stays the source of truth. */
+  var db = null;
+  try { db = JSON.parse(store.get('le_db') || 'null'); } catch (e) { db = null; }
+  var monthCache = {};
+  var syncing = null, syncProblem = '', lastSyncMs = null;
+  var lastSyncAt = Number(store.get('le_synced')) || 0;
+  var pending = 0, writeQueue = Promise.resolve();
 
   /* ---------- helpers ---------- */
   function fmt(n) {
@@ -49,6 +58,13 @@
   function dayLabel(d) {
     var p = d.split('-').map(Number);
     return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  function sinceText(ms) {
+    var mins = Math.round((Date.now() - ms) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + ' min ago';
+    if (mins < 1440) return Math.round(mins / 60) + ' h ago';
+    return Math.round(mins / 1440) + ' days ago';
   }
   function ago(iso) {
     if (!iso) return 'none yet';
@@ -88,7 +104,6 @@
   /* ---------- shell ---------- */
   var TABS = [
     ['home', 'Home', '<path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6H9v6H5a1 1 0 01-1-1z"/>'],
-    ['review', 'Review', '<circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>'],
     ['txns', 'Activity', '<path d="M5 7h14M5 12h14M5 17h9"/>'],
     ['add', 'Add', '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>']
   ];
@@ -98,7 +113,6 @@
       var b = h('button', { role: 'tab', 'data-tab': t[0], 'aria-selected': String(state.tab === t[0]), onclick: function () { setTab(t[0]); } });
       b.innerHTML = '<svg viewBox="0 0 24 24">' + t[2] + '</svg>';
       b.append(t[1]);
-      if (t[0] === 'review' && state.reviewCount) b.append(h('span', { class: 'badge' }, String(state.reviewCount)));
       nav.append(b);
     });
     nav.hidden = !(cfg.token && (cfg.token === 'demo' || cfg.url));
@@ -107,19 +121,106 @@
     state.tab = t; state.account = null; store.set('le_tab', t);
     buildTabs(); render(); window.scrollTo(0, 0);
   }
-  function setReviewCount(n) {
-    if (n === state.reviewCount) return;
-    state.reviewCount = n; buildTabs();
-  }
+  function connected() { return !!(cfg.token && (cfg.token === 'demo' || cfg.url)); }
   function render() {
-    if (!cfg.token || (cfg.token !== 'demo' && !cfg.url)) return renderSetup();
+    if (!connected()) return renderSetup();
     $('#tabs').hidden = false;
+    if (!db) { loading(); sync(true); return; }
     if (state.tab === 'home' && state.account) return renderTxns(state.account);
-    ({ home: renderHome, review: renderReview, txns: function () { renderTxns(null); }, add: renderAdd })[state.tab]();
+    ({ home: renderHome, txns: function () { renderTxns(null); }, add: renderAdd })[state.tab]();
   }
   function signOut() {
-    store.del('le_url'); store.del('le_token'); cfg = { url: '', token: '' };
-    $('#tabs').hidden = true; renderSetup();
+    store.del('le_url'); store.del('le_token'); store.del('le_db'); store.del('le_synced');
+    cfg = { url: '', token: '' }; db = null; monthCache = {}; lastSyncAt = 0;
+    setStatus(); $('#tabs').hidden = true; renderSetup();
+  }
+
+  /* ---------- data ---------- */
+  function saveDb() { store.set('le_db', JSON.stringify(db)); }
+  function setDb(d) { delete d.fetchFailed; db = d; monthCache = {}; saveDb(); }
+  function setStatus() {
+    var el = $('#sync-status');
+    if (!connected()) { el.textContent = ''; return; }
+    if (syncing) el.textContent = 'Updating...';
+    else if (syncProblem) el.textContent = syncProblem;
+    else el.textContent = lastSyncAt ? 'Updated ' + sinceText(lastSyncAt) : '';
+  }
+  /** Someone is typing or editing, so a background update must not redraw under them. */
+  function busy() {
+    var a = document.activeElement;
+    return !!document.querySelector('.overlay') || state.tab === 'add' || !!document.querySelector('details.fix[open]') ||
+      !!(a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));
+  }
+  function drawNow() { var y = window.scrollY; render(); window.scrollTo(0, y); }
+  /** Fetches new alerts and fresh numbers. force skips the "nothing changed" shortcut. */
+  function sync(force) {
+    if (syncing) return syncing;
+    if (!connected()) return Promise.resolve();
+    var t0 = Date.now();
+    syncing = api('sync', { version: db ? db.version : '', force: !!force || !db }).then(function (d) {
+      lastSyncMs = Date.now() - t0; lastSyncAt = Date.now(); store.set('le_synced', String(lastSyncAt));
+      syncProblem = d.fetchFailed ? 'Could not check email. Showing what is saved.' : '';
+      if (!d.unchanged && pending === 0) {
+        var first = !db;
+        setDb(d);
+        syncing = null;
+        if (first || !busy()) drawNow();
+      }
+    }).catch(function (e) {
+      syncProblem = 'Could not update. Showing saved data.';
+      syncing = null;
+      if (!db || /unauthorized|too many/.test(e.message || '')) failed(e);
+    }).then(function () { syncing = null; setStatus(); });
+    setStatus();
+    return syncing;
+  }
+  /**
+   * Shows a change straight away, then sends it in the background, one at a time.
+   * The reply brings fresh totals. If sending fails, the change is undone.
+   */
+  function mutate(action, payload, applyLocal, onDone) {
+    var before = JSON.stringify(db), beforeCache = JSON.stringify(monthCache);
+    applyLocal();
+    saveDb();
+    pending++;
+    drawNow();
+    writeQueue = writeQueue.then(function () { return api(action, payload); }).then(function (res) {
+      pending--;
+      if (pending === 0 && res.snapshot) {
+        setDb(res.snapshot);
+        if (!busy()) drawNow();
+      }
+      if (onDone) onDone(res);
+    }).catch(function (e) {
+      pending--;
+      db = JSON.parse(before); monthCache = JSON.parse(beforeCache); saveDb();
+      drawNow();
+      toast('Could not save: ' + (e.message || 'no connection'));
+    });
+  }
+  function findRows(id) {
+    var found = db.rows.filter(function (r) { return r.id === id; });
+    Object.keys(monthCache).forEach(function (m) {
+      found = found.concat(monthCache[m].filter(function (r) { return r.id === id; }));
+    });
+    return found;
+  }
+  function retotal() {
+    var b = db.balances, money = 0, owed = 0;
+    b.accounts.forEach(function (a) { if (a.type === 'card') owed -= a.balance; else money += a.balance; });
+    b.totalMoney = Math.round(money * 100) / 100; b.cardOwed = Math.round(owed * 100) / 100;
+  }
+  function moveBalance(id, delta) {
+    db.balances.accounts.forEach(function (a) { if (a.id === id) a.balance = Math.round((a.balance + delta) * 100) / 100; });
+    retotal();
+  }
+  function rowDelta(r, id) {
+    return (r.effects || []).reduce(function (sum, e) { return e.account === id ? sum + e.delta : sum; }, 0);
+  }
+  function makeCtx() {
+    var names = {};
+    db.balances.accounts.forEach(function (a) { names[a.id] = a.name; });
+    return { categories: db.categories, accounts: db.balances.accounts, accountName: function (id) { return names[id] || id; } };
   }
 
   /* ---------- setup ---------- */
@@ -131,8 +232,10 @@
     function connect(u, t) {
       cfg = { url: u, token: t };
       msg.textContent = 'Checking...';
-      api('summary').then(function () {
-        store.set('le_url', u); store.set('le_token', t); state.tab = 'home'; buildTabs(); render();
+      api('sync', { force: true }).then(function (d) {
+        store.set('le_url', u); store.set('le_token', t); setDb(d);
+        lastSyncAt = Date.now(); store.set('le_synced', String(lastSyncAt));
+        state.tab = 'home'; buildTabs(); render(); setStatus();
       }).catch(function (e) { msg.textContent = 'That did not work: ' + e.message; cfg = { url: '', token: '' }; });
     }
     show(h('div', { class: 'card setup' },
@@ -146,10 +249,7 @@
   }
 
   /* ---------- home ---------- */
-  function renderHome() {
-    loading();
-    api('summary').then(function (s) { state.catsCache = s.categories; setReviewCount(s.month.reviewCount); drawHome(s); }).catch(failed);
-  }
+  function renderHome() { drawHome(db); }
   function drawHome(s) {
     var b = s.balances, m = s.month;
     var banks = b.accounts.filter(function (a) { return a.type !== 'card'; });
@@ -163,20 +263,18 @@
     if (s.banksSeen.indexOf('OCBC') < 0) {
       out.push(h('div', { class: 'notice info' }, 'OCBC is not connected yet, so it is not in these totals.'));
     }
-    if (m.reviewCount) {
-      out.push(h('button', { class: 'notice', onclick: function () { setTab('review'); } }, m.reviewCount + ' to review →'));
-    }
     var accts = h('div', { class: 'card list' });
     b.accounts.forEach(function (a) { accts.append(accountRow(a)); });
     out.push(h('div', null, h('div', { class: 'section-head' }, h('h2', null, 'Accounts')), h('div', { style: 'height:8px' }), accts));
 
-    var recent = s.recent || [];
-    var ctx = makeCtx({ accounts: b.accounts, categories: s.categories });
+    var byId = {};
+    s.rows.forEach(function (r) { byId[r.id] = r; });
+    var recent = s.recentIds.map(function (id) { return byId[id]; }).filter(Boolean);
     out.push(h('div', null,
       h('div', { class: 'section-head' }, h('h2', null, 'Recent'),
         h('button', { class: 'link', onclick: function () { setTab('txns'); } }, 'See all')),
-      recent.length ? h('div', { class: 'recent' }, txnGroups(recent, ctx, renderHome))
-        : h('div', { class: 'card empty', style: 'margin-top:8px' }, 'No transactions yet. New bank alerts show up here within about a minute.')));
+      recent.length ? h('div', { class: 'recent' }, txnGroups(recent))
+        : h('div', { class: 'card empty', style: 'margin-top:8px' }, 'No transactions yet. New bank alerts show up here when you open the app or pull down to refresh.')));
 
     var bars = h('div', { class: 'card bars' });
     var top = m.byCategory.slice(0, 6), max = top.length ? Math.max.apply(null, top.map(function (c) { return Math.abs(c.total); })) || 1 : 1;
@@ -196,7 +294,7 @@
   function accountRow(a) {
     var isCard = a.type === 'card';
     return h('button', { class: 'acct', onclick: function () {
-      state.account = a.id; state.query = ''; renderTxns(a.id); window.scrollTo(0, 0);
+      state.account = a.id; state.query = ''; render(); window.scrollTo(0, 0);
     } },
       h('div', null, h('div', { class: 'name' }, a.name), h('div', { class: 'small muted' }, isCard ? 'Credit card' : a.bank + ' account')),
       h('div', { class: 'acct-right' },
@@ -204,8 +302,9 @@
         h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')));
   }
 
-  /* ---------- editor (used by Review and Activity) ---------- */
-  function editor(row, ctx, opts) {
+  /* ---------- editor ---------- */
+  function editor(row, opts) {
+    var ctx = makeCtx();
     var isManual = String(row.id).indexOf('m-') === 0;
     var selected = row.category || '';
     var chipBox = h('div', { class: 'chips' });
@@ -263,18 +362,26 @@
         }
         payload.applyToMerchant = apply.checked;
       }
-      saveBtn.disabled = true;
-      api('setCategory', payload).then(function (r) {
-        toast(r.ruleAdded ? 'Saved. Rule added for this merchant.' : 'Saved');
-        opts.onSaved(r);
-      }).catch(function (e) { toast(e.message); saveBtn.disabled = false; });
-    } }, opts.saveLabel || 'Save');
+      opts.onClose();
+      mutate('setCategory', payload, function () {
+        findRows(row.id).forEach(function (r) {
+          ['category', 'tag', 'merchant', 'amount', 'account', 'toAccount', 'direction'].forEach(function (k) {
+            if (payload[k] !== undefined) r[k] = payload[k];
+          });
+          r.status = 'ok';
+        });
+      }, function (res) { if (res.ruleAdded) toast('Saved. Used for this merchant from now on.'); });
+    } }, 'Save');
 
-    var buttons = [saveBtn];
-    if (opts.onSkip) buttons.unshift(h('button', { class: 'btn ghost', onclick: opts.onSkip }, 'Skip'));
-    if (opts.onClose) buttons.unshift(h('button', { class: 'btn ghost', onclick: opts.onClose }, 'Close'));
-    if (isManual && opts.onDeleted) buttons.push(h('button', { class: 'btn danger', onclick: function () {
-      api('deleteRow', { id: row.id }).then(function () { toast('Deleted'); opts.onDeleted(); }).catch(function (e) { toast(e.message); });
+    var buttons = [h('button', { class: 'btn ghost', onclick: opts.onClose }, 'Close'), saveBtn];
+    if (isManual) buttons.push(h('button', { class: 'btn danger', onclick: function () {
+      opts.onClose();
+      mutate('deleteRow', { id: row.id }, function () {
+        db.rows = db.rows.filter(function (r) { return r.id !== row.id; });
+        db.recentIds = db.recentIds.filter(function (id) { return id !== row.id; });
+        (row.effects || []).forEach(function (e) { moveBalance(e.account, -e.delta); });
+        Object.keys(monthCache).forEach(function (m) { monthCache[m] = monthCache[m].filter(function (r) { return r.id !== row.id; }); });
+      });
     } }, 'Delete'));
 
     return h('div', { class: 'card editor' },
@@ -293,37 +400,10 @@
       row.merchantRaw && !isManual ? applyLabel : null,
       h('div', { class: 'btn-row' }, buttons));
   }
-  function makeCtx(data) {
-    var names = {};
-    data.accounts.forEach(function (a) { names[a.id] = a.name; });
-    return { categories: data.categories, accounts: data.accounts, accountName: function (id) { return names[id] || id; } };
-  }
-
-  /* ---------- review ---------- */
-  function renderReview() {
-    loading();
-    api('reviewQueue').then(function (d) {
-      state.review = { rows: d.rows, ctx: makeCtx(d), idx: 0 };
-      setReviewCount(d.rows.length); drawReview();
-    }).catch(failed);
-  }
-  function drawReview() {
-    var r = state.review;
-    if (!r.rows.length) return show(h('div', { class: 'card empty' }, h('p', null, 'Nothing to review.'), h('p', { class: 'small' }, 'New bank alerts that need a category will appear here.')));
-    if (r.idx >= r.rows.length) r.idx = 0;
-    var row = r.rows[r.idx];
-    show(h('div', null,
-      h('div', { class: 'progress' }, (r.idx + 1) + ' of ' + r.rows.length + ' to review'),
-      editor(row, r.ctx, {
-        saveLabel: 'Save and next',
-        onSkip: r.rows.length > 1 ? function () { r.idx = (r.idx + 1) % r.rows.length; drawReview(); } : null,
-        onSaved: function () { r.rows.splice(r.idx, 1); setReviewCount(r.rows.length); drawReview(); window.scrollTo(0, 0); }
-      })));
-  }
 
   /* ---------- transaction lists (Home, Activity, account screen) ---------- */
-  /** One day-grouped list of rows. When accountId is set, signs follow the row's delta for that account. */
-  function txnGroups(rows, ctx, reload) {
+  /** One day-grouped list of rows. When accountId is set, signs show what each row did to that account. */
+  function txnGroups(rows, accountId) {
     var out = [], card = null, lastDay = '';
     rows.forEach(function (r) {
       var day = r.datetime.slice(0, 10);
@@ -332,126 +412,154 @@
         out.push(h('div', { class: 'day' }, dayLabel(day)));
         card = h('div', { class: 'card list' }); lastDay = day;
       }
-      var hasDelta = r.delta !== undefined && r.delta !== null;
-      var isIn = hasDelta ? r.delta > 0 : (r.direction === 'in' || r.direction === 'refund');
-      var sign = hasDelta ? (r.delta > 0 ? '+' : r.delta < 0 ? '−' : '') : (isIn ? '+' : (r.direction === 'out' ? '−' : ''));
-      var shown = hasDelta ? Math.abs(r.delta) : r.amount;
-      card.append(h('button', { class: 'tx', onclick: function () { openSheet(r, ctx, reload); } },
-        h('div', { class: 'm' }, h('div', { class: 'title' }, r.merchant || r.merchantRaw || 'Entry'),
-          h('div', { class: 'small muted' }, [r.category || (r.status === 'review' ? 'Needs review' : 'Uncategorised'), r.tag ? ' · ' + r.tag : '', r.status === 'dup' ? ' · duplicate' : ''])),
-        h('div', { class: 'amt num' + (isIn ? ' in' : '') }, r.amount === '' ? '?' : sign + fmt(shown).replace('−', ''))));
+      var change = accountId ? rowDelta(r, accountId) : (r.direction === 'adjust' ? Number(r.amount) : r.direction === 'out' ? -1 : (r.direction === 'in' || r.direction === 'refund') ? 1 : 0);
+      var sign = change > 0 ? '+' : change < 0 ? '\u2212' : '';
+      var notes = [r.category || 'Uncategorised', r.tag ? ' \u00b7 ' + r.tag : '',
+        r.status === 'guess' ? ' \u00b7 unsorted' : '', r.status === 'review' ? ' \u00b7 needs attention' : '', r.status === 'dup' ? ' \u00b7 duplicate' : ''];
+      card.append(h('button', { class: 'tx', onclick: function () { openSheet(r); } },
+        h('div', { class: 'm' }, h('div', { class: 'title' }, r.merchant || r.merchantRaw || 'Entry'), h('div', { class: 'small muted' }, notes)),
+        h('div', { class: 'amt num' + (change > 0 ? ' in' : '') }, r.amount === '' ? '?' : sign + fmt(Math.abs(Number(r.amount))))));
     });
     if (card) out.push(card);
     return out;
   }
 
   /** Correct an account's balance from the bank app. Card: type what you owe. */
-  function balanceForm(a, onDone) {
+  function balanceForm(a) {
     var isCard = a.type === 'card';
     var input = h('input', { type: 'text', inputmode: 'decimal', id: 'bal-' + a.id, placeholder: isCard ? 'Amount owed right now' : 'Balance right now', autocomplete: 'off' });
     var save = h('button', { class: 'btn', onclick: function () {
       var v = parseMoney(input.value);
       if (isNaN(v)) return toast('Enter a number');
-      save.disabled = true;
-      api('setBalance', { account: a.id, actual: isCard ? -Math.abs(v) : v })
-        .then(function () { toast('Balance updated'); onDone(); })
-        .catch(function (e) { toast(e.message); save.disabled = false; });
+      var actual = isCard ? -Math.abs(v) : v;
+      mutate('setBalance', { account: a.id, actual: actual }, function () { moveBalance(a.id, actual - a.balance); });
+      toast('Balance updated');
     } }, 'Set balance');
     return h('div', { class: 'acct-detail' },
       h('div', { class: 'small muted' }, 'Alerts do not show balances. Type what your bank app says to correct this number.'),
       h('label', { class: 'field' }, isCard ? 'Amount owed' : 'Actual balance', input), save);
   }
 
-  function accountHeader(a, onChanged) {
+  function accountHeader(a) {
     var isCard = a.type === 'card';
     return h('div', { class: 'card acct-head' },
-      h('button', { class: 'back', onclick: function () { state.account = null; state.query = ''; renderHome(); window.scrollTo(0, 0); } }, '← Home'),
+      h('button', { class: 'back', onclick: function () { state.account = null; state.query = ''; render(); window.scrollTo(0, 0); } }, '← Home'),
       h('div', { class: 'label' }, a.name),
       h('div', { class: 'big num' + (isCard ? ' owed' : '') }, isCard ? fmt(-a.balance) + ' owed' : fmt(a.balance)),
       isCard ? h('div', { class: 'small muted' }, 'Spent since last payment: ' + fmt(a.sinceLastPayment || 0)) : null,
-      h('details', { class: 'fix' }, h('summary', null, 'Correct this balance'), balanceForm(a, onChanged)));
+      h('details', { class: 'fix' }, h('summary', null, 'Correct this balance'), balanceForm(a)));
   }
 
   /* ---------- activity ---------- */
-  var searchTimer;
-  /** accountId null = all accounts (Activity tab); otherwise one account's screen. */
+  /** accountId null = all accounts (Activity tab); otherwise one account's screen. Reads saved data, so it draws at once. */
   function renderTxns(accountId) {
+    var current = db.month.month;
+    if (!state.month || db.months.indexOf(state.month) < 0) state.month = current;
+    if (accountId) state.filter = 'all';
     var listBox = h('div', { id: 'txn-list' });
-    var headBox = h('div');
-    var monthSel = h('select', { id: 'txn-month', 'aria-label': 'Month' });
+    var account = accountId ? db.balances.accounts.filter(function (a) { return a.id === accountId; })[0] : null;
+    var monthSel = h('select', { id: 'txn-month', 'aria-label': 'Month' }, db.months.map(function (m) {
+      var o = h('option', { value: m }, monthLabel(m)); if (m === state.month) o.selected = true; return o;
+    }));
     var search = h('input', { type: 'search', id: 'txn-q', placeholder: 'Search', value: state.query, 'aria-label': 'Search' });
-    show(h('div', null, headBox, h('div', { class: 'controls' }, monthSel, search), listBox));
-    var ctxData = null;
-    function load() {
-      listBox.replaceChildren(h('div', { class: 'skeleton' }));
-      Promise.all([api('list', { month: state.month, query: state.query, account: accountId || undefined }), ctxData ? Promise.resolve(ctxData) : api('reviewQueue')])
-        .then(function (res) {
-          var d = res[0]; ctxData = res[1]; state.month = d.month;
-          monthSel.replaceChildren.apply(monthSel, d.months.map(function (m) { var o = h('option', { value: m }, monthLabel(m)); if (m === d.month) o.selected = true; return o; }));
-          if (accountId && d.account) headBox.replaceChildren(accountHeader(d.account, load));
-          drawList(d, makeCtx(ctxData), load);
-        }).catch(failed);
+    var guesses = db.rows.filter(function (r) { return r.status === 'guess'; }).length;
+    var attention = db.rows.filter(function (r) { return r.status === 'review'; }).length;
+    if ((state.filter === 'guess' && !guesses) || (state.filter === 'review' && !attention)) state.filter = 'all';
+    function chip(id, label) {
+      return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(state.filter === id), onclick: function () { state.filter = id; render(); } }, label);
     }
-    function drawList(d, ctx, reload) {
+    var chips = (!accountId && (guesses || attention)) ? h('div', { class: 'chips filters' }, chip('all', 'All'),
+      guesses ? chip('guess', 'Unsorted (' + guesses + ')') : null,
+      attention ? chip('review', 'Needs attention (' + attention + ')') : null) : null;
+    monthSel.hidden = state.filter !== 'all';
+    show(h('div', null, account ? accountHeader(account) : null, chips, h('div', { class: 'controls' }, monthSel, search), listBox));
+
+    function matches(r) {
+      if (accountId && r.account !== accountId && r.toAccount !== accountId) return false;
+      if (!state.query) return true;
+      return [r.merchant, r.merchantRaw, r.category, r.tag, r.note].join(' ').toLowerCase().indexOf(state.query.toLowerCase()) >= 0;
+    }
+    function drawList() {
+      var source;
+      if (state.filter !== 'all') source = db.rows.filter(function (r) { return r.status === state.filter; });
+      else if (state.month === current) source = db.rows.filter(function (r) { return r.datetime.slice(0, 7) === current; });
+      else source = monthCache[state.month];
+      if (!source) {
+        listBox.replaceChildren(h('div', { class: 'skeleton' }));
+        var wanted = state.month;
+        api('list', { month: wanted }).then(function (d) {
+          monthCache[wanted] = d.rows;
+          if (state.month === wanted) drawList();
+        }).catch(function () { listBox.replaceChildren(h('div', { class: 'card empty' }, 'Could not load that month. Check your connection.')); });
+        return;
+      }
+      var rows = source.filter(matches).sort(function (a, b) { return a.datetime < b.datetime ? 1 : -1; });
       listBox.replaceChildren();
-      if (!d.rows.length) return listBox.append(h('div', { class: 'card empty' }, state.query ? 'Nothing matches that search.' : 'No transactions this month.'));
-      append(listBox, txnGroups(d.rows, ctx, reload));
+      if (!rows.length) {
+        var msg = state.query ? 'Nothing matches that search.' : state.filter !== 'all' ? 'Nothing left here.' : 'No transactions this month.';
+        return listBox.append(h('div', { class: 'card empty' }, msg));
+      }
+      append(listBox, txnGroups(rows, accountId));
     }
-    monthSel.addEventListener('change', function () { state.month = monthSel.value; load(); });
-    search.addEventListener('input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { state.query = search.value.trim(); load(); }, 300); });
-    load();
+    monthSel.addEventListener('change', function () { state.month = monthSel.value; drawList(); });
+    search.addEventListener('input', function () { state.query = search.value.trim(); drawList(); });
+    drawList();
   }
-  function openSheet(row, ctx, reload) {
+  function openSheet(row) {
+    if (String(row.id).indexOf('tmp-') === 0) return toast('Still saving. Try again in a moment.');
     var overlay = h('div', { class: 'overlay', onclick: function (e) { if (e.target === overlay) close(); } });
     function close() { overlay.remove(); }
-    overlay.append(h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, h('div', { class: 'grab' }),
-      editor(row, ctx, { onClose: close, onSaved: function () { close(); reload(); }, onDeleted: function () { close(); reload(); } })));
+    overlay.append(h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, h('div', { class: 'grab' }), editor(row, { onClose: close })));
     document.body.append(overlay);
   }
 
   /* ---------- add ---------- */
   function renderAdd() {
-    loading();
-    api('reviewQueue').then(function (d) {
-      var ctx = makeCtx(d), selected = '', kind = 'out';
-      var amount = h('input', { type: 'text', id: 'add-amount', inputmode: 'decimal', placeholder: '0.00', autocomplete: 'off' });
-      var merchant = h('input', { type: 'text', id: 'add-merchant', placeholder: 'e.g. Wet market', autocomplete: 'off' });
-      var tag = h('input', { type: 'text', id: 'add-tag', placeholder: 'e.g. fish', autocomplete: 'off' });
-      var date = h('input', { type: 'date', id: 'add-date', value: todayStr() });
-      var acct = h('select', { id: 'add-account' }, d.accounts.map(function (a) { return h('option', { value: a.id }, a.name); }));
-      var chipBox = h('div', { class: 'chips' });
-      var kindBox = h('div', { class: 'chips' });
-      function drawKind() {
-        kindBox.replaceChildren(
-          h('button', { type: 'button', class: 'chip', 'aria-pressed': String(kind === 'out'), onclick: function () { kind = 'out'; drawKind(); } }, 'Spent'),
-          h('button', { type: 'button', class: 'chip', 'aria-pressed': String(kind === 'in'), onclick: function () { kind = 'in'; drawKind(); } }, 'Received'));
-      }
-      function drawChips() {
-        chipBox.replaceChildren();
-        d.categories.forEach(function (c) { chipBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(c === selected), onclick: function () { selected = c; drawChips(); } }, c)); });
-      }
-      drawKind(); drawChips();
-      var save = h('button', { class: 'btn', onclick: function () {
-        var v = parseMoney(amount.value);
-        if (isNaN(v) || v <= 0) return toast('Enter an amount');
-        if (kind === 'out' && !selected) return toast('Pick a category');
-        save.disabled = true;
-        api('addManual', { amount: v, direction: kind, merchant: merchant.value.trim(), category: kind === 'in' ? 'Income' : selected, tag: tag.value.trim(), account: acct.value, date: date.value })
-          .then(function () { toast('Added'); renderAdd(); })
-          .catch(function (e) { toast(e.message); save.disabled = false; });
-      } }, 'Add entry');
-      show(h('div', { class: 'card editor' },
-        h('h2', null, 'Add an entry'),
-        h('div', { class: 'small muted' }, 'For cash and anything the bank did not email about.'),
-        kindBox,
-        h('label', { class: 'field' }, 'Amount (SGD)', amount),
-        h('label', { class: 'field' }, 'What for', merchant),
-        h('div', { class: 'stack' }, h('div', { class: 'small muted' }, 'Category'), chipBox),
-        h('label', { class: 'field' }, 'Keyword', tag),
-        h('label', { class: 'field' }, 'Paid from', acct),
-        h('label', { class: 'field' }, 'Date', date),
-        save));
-    }).catch(failed);
+    var d = { accounts: db.balances.accounts, categories: db.categories };
+    var selected = '', kind = 'out';
+    var amount = h('input', { type: 'text', id: 'add-amount', inputmode: 'decimal', placeholder: '0.00', autocomplete: 'off' });
+    var merchant = h('input', { type: 'text', id: 'add-merchant', placeholder: 'e.g. Wet market', autocomplete: 'off' });
+    var tag = h('input', { type: 'text', id: 'add-tag', placeholder: 'e.g. fish', autocomplete: 'off' });
+    var date = h('input', { type: 'date', id: 'add-date', value: todayStr() });
+    var acct = h('select', { id: 'add-account' }, d.accounts.map(function (a) { return h('option', { value: a.id }, a.name); }));
+    var chipBox = h('div', { class: 'chips' });
+    var kindBox = h('div', { class: 'chips' });
+    function drawKind() {
+      kindBox.replaceChildren(
+        h('button', { type: 'button', class: 'chip', 'aria-pressed': String(kind === 'out'), onclick: function () { kind = 'out'; drawKind(); } }, 'Spent'),
+        h('button', { type: 'button', class: 'chip', 'aria-pressed': String(kind === 'in'), onclick: function () { kind = 'in'; drawKind(); } }, 'Received'));
+    }
+    function drawChips() {
+      chipBox.replaceChildren();
+      d.categories.forEach(function (c) { chipBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(c === selected), onclick: function () { selected = c; drawChips(); } }, c)); });
+    }
+    drawKind(); drawChips();
+    var save = h('button', { class: 'btn', onclick: function () {
+      var v = parseMoney(amount.value);
+      if (isNaN(v) || v <= 0) return toast('Enter an amount');
+      if (kind === 'out' && !selected) return toast('Pick a category');
+      var payload = { amount: v, direction: kind, merchant: merchant.value.trim(), category: kind === 'in' ? 'Income' : selected, tag: tag.value.trim(), account: acct.value, date: date.value };
+      var delta = kind === 'in' ? v : -v;
+      mutate('addManual', payload, function () {
+        var id = 'tmp-' + Date.now();
+        db.rows.unshift({ id: id, datetime: payload.date + 'T12:00:00', direction: kind, amount: v, account: payload.account, toAccount: '', merchantRaw: payload.merchant,
+          merchant: payload.merchant, category: payload.category, tag: payload.tag, note: '', bank: 'manual', status: 'ok', effects: [{ account: payload.account, delta: delta }] });
+        db.recentIds.unshift(id);
+        moveBalance(payload.account, delta);
+      });
+      toast('Added');
+    } }, 'Add entry');
+    show(h('div', { class: 'card editor' },
+      h('h2', null, 'Add an entry'),
+      h('div', { class: 'small muted' }, 'For cash and anything the bank did not email about.'),
+      kindBox,
+      h('label', { class: 'field' }, 'Amount (SGD)', amount),
+      h('label', { class: 'field' }, 'What for', merchant),
+      h('div', { class: 'stack' }, h('div', { class: 'small muted' }, 'Category'), chipBox),
+      h('label', { class: 'field' }, 'Keyword', tag),
+      h('label', { class: 'field' }, 'Paid from', acct),
+      h('label', { class: 'field' }, 'Date', date),
+      save));
   }
 
   /* ---------- settings ---------- */
@@ -461,6 +569,7 @@
       h('div', { class: 'card editor' },
         h('h2', null, 'Settings'),
         h('p', { class: 'small muted' }, cfg.token === 'demo' ? 'You are looking at sample data.' : 'Connected to your sheet. The address and token are stored on this phone only.'),
+        h('p', { class: 'small muted' }, lastSyncMs === null ? 'Pull down to update and see how long it takes.' : 'Last update took ' + (lastSyncMs / 1000).toFixed(1) + ' seconds.'),
         h('div', { class: 'btn-row' },
           h('button', { class: 'btn ghost', onclick: function () { overlay.remove(); } }, 'Close'),
           h('button', { class: 'btn danger', onclick: function () { overlay.remove(); signOut(); } }, 'Disconnect')))));
@@ -470,6 +579,33 @@
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
   }
+  /* ---------- updating ---------- */
+  $('#refresh-btn').addEventListener('click', function () { sync(true); });
+  document.addEventListener('visibilitychange', function () {
+    setStatus();
+    if (document.visibilityState === 'visible' && Date.now() - lastSyncAt > 5 * 60000) sync();
+  });
+
+  /* Home Screen web apps on iPhone have no pull to refresh of their own. */
+  var PULL_DISTANCE = 110;
+  var ptr = $('#ptr'), pullStart = null, pulled = 0;
+  document.addEventListener('touchstart', function (e) {
+    pullStart = (window.scrollY <= 0 && e.touches.length === 1 && !document.querySelector('.overlay')) ? e.touches[0].clientY : null;
+    pulled = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (pullStart === null) return;
+    pulled = Math.max(0, e.touches[0].clientY - pullStart);
+    ptr.style.height = Math.min(pulled / 2, 56) + 'px';
+    ptr.textContent = pulled > PULL_DISTANCE ? 'Release to update' : 'Pull to update';
+  }, { passive: true });
+  document.addEventListener('touchend', function () {
+    if (pullStart !== null && pulled > PULL_DISTANCE) sync(true);
+    pullStart = null; pulled = 0; ptr.style.height = '0';
+  }, { passive: true });
+
   buildTabs();
   render();
+  setStatus();
+  if (connected() && db) sync();
 })();

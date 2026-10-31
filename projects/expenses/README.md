@@ -1,8 +1,8 @@
 # Expense tracker
 
-Status: DBS and UOB email reader installed and logging real alerts. Phone app v1 (Home, Review, Activity, Add) written in `docs/` and tested with sample data; backend API (`Api.gs`, `Ledger.gs`) written, not yet deployed. OCBC reader still to do. Tests: 32 pass in `backend/apps-script/tests/run.html`.
+Status: DBS and UOB reader and phone app (Home, Activity, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. OCBC reader still to do. Tests: 42 pass in `backend/apps-script/tests/run.html`.
 
-Phone app API (POST text/plain JSON `{token, action, ...}`): `summary`, `list`, `reviewQueue`, `setCategory`, `addManual`, `setBalance`, `deleteRow`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
+Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`. The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
 Repo: https://github.com/wopni1021/life-ai-assistent (public; never commit personal data).
 Reader code: `backend/apps-script/` (setup steps in `SETUP.md`).
@@ -63,7 +63,8 @@ Implications:
 ## Phone behavior
 - Installable web app; opens straight to totals.
 - Quick manual add in a few taps.
-- Review queue for emails the parser could not read.
+- Opens from a saved copy; updates in the background.
+- Unsorted and Needs attention filters in Activity. Nothing blocks.
 
 ## Sharing
 Only the user.
@@ -81,6 +82,7 @@ None. Starting fresh; opening balances entered once per account.
 ## Decisions
 - Banks: OCBC, DBS, UOB. Currency: SGD.
 - Notification emails show only amount and merchant, not balance. Balances are opening balance plus logged transactions, with a manual "set actual balance" correction.
-- Up to a minute of delay is fine.
+- Fetch alerts when the app opens or on pull to refresh; no timer.
+- Merchants with no rule default to Dining (card, NETS, PayNow) or Other (transfers, GIRO), marked as guesses.
 - Single user, no sharing.
 - No history to import.

@@ -13,6 +13,8 @@ var ctx = {
     { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', last4: '3333' }
   ],
   ownNames: ['jane tan'],
+  defaultCategory: 'Dining',
+  defaultTransferCategory: 'Other',
   rules: [
     { pattern: 'SHENG SIONG', name: 'Sheng Siong', category: 'Groceries', tag: 'supermarket' },
     { pattern: 'BUS/MRT', name: 'Public transport', category: 'Transport', tag: 'commute' },
@@ -25,11 +27,11 @@ var cases = [
   { n: 'DBS PayNow to a shop',
     from: DBS, subj: 'iBanking Alerts',
     body: '| Dear Customer, We refer to your PAYNOW dated 27 Oct. We are pleased to confirm that the transaction was completed. |\n| Date & Time: | 27 Oct 12:20 (SGT) |\n| Amount: | SGD9.40 |\n| From: | DBS Savings Plus Account A/C ending 1111 |\n| To: | LS & CO PRIVATE LIMITED (UEN ending X999) |\n\nIf unauthorised, please call our DBS hotline.',
-    expect: { direction: 'out', amount: 9.4, account: 'dbs-savings', merchantRaw: 'LS & CO PRIVATE LIMITED', status: 'review' } },
+    expect: { direction: 'out', amount: 9.4, account: 'dbs-savings', merchantRaw: 'LS & CO PRIVATE LIMITED', category: 'Dining', status: 'guess' } },
   { n: 'DBS NETS Scan & Pay',
     from: DBS, subj: 'digibank Alert - Successful NETS Scan & Pay',
     body: '| Transaction Ref: 100000000000001 Dear Customer, Your NETS Scan & Pay transaction on 13 Oct 11:59 SGT was successful. |\n| Date & Time: 13 Oct 11:59 SGT |\n| Amount: S$5.30 |\n| From: DBS/POSB Account ending 1111 |\n| To: FOOD PALATE |\n\nIf unauthorised, call DBS hotline.',
-    expect: { direction: 'out', amount: 5.3, account: 'dbs-savings', merchantRaw: 'FOOD PALATE', channel: 'NETS' } },
+    expect: { direction: 'out', amount: 5.3, account: 'dbs-savings', merchantRaw: 'FOOD PALATE', channel: 'NETS', category: 'Dining', status: 'guess' } },
   { n: 'DBS NETS with asterisks and invisible characters (as Gmail renders it)',
     from: DBS, subj: 'digibank Alert - Successful NETS Scan & Pay',
     body: 'digibank alert ‌ ‌ ‌ [image: DBS | Live more, Bank less] Transaction Ref: 100000000000001 Dear Customer, Your NETS Scan & Pay transaction on 13 Oct 11:59 SGT was successful. *Date & Time: *13 Oct 11:59 SGT *Amount: *S$5.30 *From: *DBS/POSB Account ending 1111 *To: *FOOD PALATE If unauthorised, call DBS hotline.',
@@ -41,7 +43,7 @@ var cases = [
   { n: 'DBS transfer to another person',
     from: DBS, subj: 'iBanking Alerts',
     body: '| Dear Customer, Your Funds Transfer to Other DBS/POSB account dated 08 Oct has been completed. |\n| Date & Time: | 08 Oct19:09(SGT) |\n| Amount: | SGD 560.00 |\n| From: | DBS Savings Plus Account A/C ending 1111 |\n| To: | someone (A/C ending 9999) |\n\nIf unauthorised, please call DBS hotline.',
-    expect: { direction: 'out', amount: 560, account: 'dbs-savings', merchantRaw: 'someone' } },
+    expect: { direction: 'out', amount: 560, account: 'dbs-savings', merchantRaw: 'someone', category: 'Other', status: 'guess' } },
   { n: 'DBS incoming from self',
     from: DBS, subj: "digibank Alerts - You've received a transfer",
     body: 'Transaction Ref: 0000000000001 Dear Customer, You have received SGD 100000.00 via FAST transfer on 29 Sep 2026 08:41 SGT. From: JANE TAN To: Your DBS/ POSB account ending 1111 Didn’t expect these funds?',
@@ -64,10 +66,10 @@ var cases = [
     from: UOB, subj: 'UOB - Transaction Alert',
     body: 'A transaction of SGD 16.00 was made with your UOB Card ending 3333 on 24/10/26 at GV FUNAN. If unauthorised, call 24/7 Fraud Hotline now',
     expect: { merchant: 'Golden Village', category: 'Entertainment' } },
-  { n: 'UOB card, unknown merchant needs review',
+  { n: 'UOB card, unknown merchant goes to the default category',
     from: UOB, subj: 'UOB - Transaction Alert',
     body: 'A transaction of SGD 17.80 was made with your UOB Card ending 3333 on 22/10/26 at Beard Papa&#39;s - Plaza Sing. If unauthorised, call 24/7 Fraud Hotline now',
-    expect: { amount: 17.8, merchantRaw: "Beard Papa's - Plaza Sing", status: 'review' } },
+    expect: { amount: 17.8, merchantRaw: "Beard Papa's - Plaza Sing", category: 'Dining', status: 'guess' } },
   { n: 'UOB reversal',
     from: UOB, subj: 'Your transaction has been reversed',
     body: 'A transaction of 6.93 SGD made with your UOB card ending 3333 on 11 Oct 26, 3:29PM at SHOPEE SG MP has been reversed.',
@@ -79,7 +81,7 @@ var cases = [
   { n: 'UOB GIRO to a payee is spending',
     from: UOB, subj: 'UOB Transaction Alert',
     body: 'A transaction of SGD300.00 was debited from your a/c XXXXXX2222 at 04:50PM 19-Oct-2026, SGT. Ref: Inward DR - GIRO, MINISTRY OF MANPOWER, FWLV 2025, FWLevy-S1234567A-16102026. If unauthorised, call UOB',
-    expect: { direction: 'out', amount: 300, account: 'uob-account', merchantRaw: 'MINISTRY OF MANPOWER' } },
+    expect: { direction: 'out', amount: 300, account: 'uob-account', merchantRaw: 'MINISTRY OF MANPOWER', category: 'Other', status: 'guess' } },
   { n: 'UOB PayNow received has no sender',
     from: UOB, subj: 'UOB-PayNow transfer received',
     body: 'You have received SGD 10000.00 in your PayNow-linked account ending 2222 on 29-SEP-2026 08:42AM. UOB EMAIL DISCLAIMER: Any person',
@@ -152,6 +154,9 @@ cases.forEach(function (c) {
   eq('delta: own transfer, receiving side', deltaFor_(rows[5], 'uob'), 200);
   eq('delta: duplicate counts for nothing', deltaFor_(rows[6], 'uob'), 0);
   eq('delta: blank amount', deltaFor_(rows[9], 'dbs'), 0);
+  var guessed = rows.concat([{ datetime: '2026-10-12T10:00:00', direction: 'out', amount: 7, account: 'dbs', category: 'Dining', status: 'guess' }]);
+  eq('guess rows count in balances', balances_(accts, guessed).totalMoney, 4356.66);
+  eq('guess rows count in spending', monthSummary_(guessed, '2026-10').total, 62);
 })();
 
 document.getElementById('out').textContent = passed + ' passed, ' + fails.length + ' failed\n' + fails.join('\n');

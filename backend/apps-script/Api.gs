@@ -8,6 +8,7 @@ var DEFAULT_CATEGORIES = ['Dining', 'Groceries', 'Transport', 'Shopping', 'Baby'
   'Entertainment', 'Household', 'Personal care', 'Other'];
 var DIRECTIONS_ = ['out', 'in', 'refund', 'transfer', 'transfer_in', 'card_payment'];
 var MAX_BAD_TOKENS_PER_HOUR = 20;
+var MAX_OLD_GUESSES = 300;
 
 /** Run once from the editor. Creates (or replaces) the secret token and shows it. */
 function makeToken() {
@@ -54,16 +55,16 @@ function checkToken_(given) {
 
 function handle_(req) {
   var a = req.action;
-  if (a === 'summary') return summary_();
+  if (a === 'sync') return sync_(req);
   if (a === 'list') return list_(req);
-  if (a === 'reviewQueue') return reviewQueue_();
   var writes = { setCategory: setCategory_, addManual: addManual_, setBalance: setBalance_, deleteRow: deleteRow_ };
   if (writes[a]) {
     var lock = LockService.getScriptLock();
     lock.waitLock(15000);
     try {
       var res = writes[a](req);
-      CacheService.getScriptCache().remove('summary');
+      bumpVersion_();
+      res.snapshot = snapshot_();
       return res;
     } finally {
       lock.releaseLock();
@@ -80,10 +81,9 @@ function dtString_(v) {
 }
 
 function loadTx_() {
-  return rows_('Transactions').map(function (r, i) {
+  return rows_('Transactions').map(function (r) {
     r.datetime = dtString_(r.datetime);
     r.createdAt = dtString_(r.createdAt);
-    r._row = i + 2;
     return r;
   });
 }
@@ -94,25 +94,67 @@ function loadAccounts_() {
 
 function monthNow_() { return Utilities.formatDate(new Date(), 'Asia/Singapore', 'yyyy-MM'); }
 
-function summary_() {
-  var cache = CacheService.getScriptCache();
-  var hit = cache.get('summary');
-  if (hit) return JSON.parse(hit);
-  var tx = loadTx_(), accounts = loadAccounts_();
-  var banks = {};
-  tx.forEach(function (r) { if (r.bank) banks[r.bank] = true; });
-  var last = tx.reduce(function (m, r) { return r.createdAt > m ? r.createdAt : m; }, '');
-  var res = {
+/** Includes the month so a saved copy goes out of date when the month rolls over. */
+function dataVersion_() {
+  return (PropertiesService.getScriptProperties().getProperty('dataVersion') || '0') + '|' + monthNow_();
+}
+
+function byNewest_(a, b) { return a.datetime < b.datetime ? 1 : -1; }
+
+/**
+ * Checks Gmail, then answers. When nothing changed since the version the app already has,
+ * it replies { unchanged: true } without reading the sheet, which is the fast path on open.
+ * A busy lock or a Gmail failure does not stop the app getting its data.
+ */
+function sync_(req) {
+  var fetchFailed = false;
+  var lock = LockService.getScriptLock();
+  if (lock.tryLock(3000)) {
+    try {
+      fetchNew_();
+    } catch (err) {
+      console.error(err && err.message);
+      fetchFailed = true;
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  if (!req.force && req.version && req.version === dataVersion_()) return { unchanged: true, fetchFailed: fetchFailed };
+  var snap = snapshot_();
+  snap.fetchFailed = fetchFailed;
+  return snap;
+}
+
+/** Everything the app shows without another call: this month, the recent list, and rows waiting to be sorted. */
+function snapshot_() {
+  var tx = loadTx_(), accounts = loadAccounts_(), month = monthNow_();
+  var banks = {}, months = {}, last = '';
+  months[month] = true;
+  tx.forEach(function (r) {
+    if (r.bank) banks[r.bank] = true;
+    if (monthOf_(r)) months[monthOf_(r)] = true;
+    if (r.bank !== 'manual' && r.createdAt > last) last = r.createdAt;
+  });
+  var newest = tx.slice().sort(byNewest_);
+  var recent = newest.filter(function (r) { return r.status !== 'dup'; }).slice(0, 8);
+  var keep = {};
+  recent.forEach(function (r) { keep[r.id] = true; });
+  var oldGuesses = 0;
+  var rows = newest.filter(function (r) {
+    if (keep[r.id] || monthOf_(r) === month || r.status === 'review') return true;
+    return r.status === 'guess' && oldGuesses++ < MAX_OLD_GUESSES;
+  }).map(clientRow_);
+  return {
+    version: dataVersion_(),
     balances: balances_(accounts, tx),
-    month: monthSummary_(tx, monthNow_()),
+    month: monthSummary_(tx, month),
+    months: Object.keys(months).sort().reverse(),
     banksSeen: Object.keys(banks),
     lastAlertAt: last,
     categories: categories_(tx),
-    recent: tx.filter(function (r) { return r.status !== 'dup'; })
-      .sort(function (a, b) { return a.datetime < b.datetime ? 1 : -1; }).slice(0, 8).map(publicRow_)
+    rows: rows,
+    recentIds: recent.map(function (r) { return r.id; })
   };
-  cache.put('summary', JSON.stringify(res), 20);
-  return res;
 }
 
 function categories_(tx) {
@@ -127,47 +169,19 @@ function categories_(tx) {
 
 var PUBLIC_FIELDS_ = ['id', 'datetime', 'direction', 'amount', 'account', 'toAccount', 'merchantRaw', 'merchant', 'category', 'tag', 'note', 'bank', 'status'];
 
-function publicRow_(r) {
+/** A row for the app. effects carries the balance rules, so the app needs no copy of them. */
+function clientRow_(r) {
   var o = {};
   PUBLIC_FIELDS_.forEach(function (k) { o[k] = r[k]; });
+  o.effects = rowEffects_(r);
   return o;
 }
 
+/** One older month. The current month comes with sync. */
 function list_(req) {
-  var tx = loadTx_();
   var month = /^\d{4}-\d{2}$/.test(req.month || '') ? req.month : monthNow_();
-  var q = String(req.query || '').toLowerCase().trim();
-  var months = {};
-  tx.forEach(function (r) { months[monthOf_(r)] = true; });
-  months[monthNow_()] = true;
-  var acct = String(req.account || '');
-  var rows = tx.filter(function (r) {
-    if (monthOf_(r) !== month) return false;
-    if (acct && r.account !== acct && r.toAccount !== acct) return false;
-    if (!q) return true;
-    return [r.merchant, r.merchantRaw, r.category, r.tag, r.note].join(' ').toLowerCase().indexOf(q) >= 0;
-  }).sort(function (a, b) { return a.datetime < b.datetime ? 1 : -1; }).map(function (r) {
-    var o = publicRow_(r);
-    if (acct) o.delta = deltaFor_(r, acct);
-    return o;
-  });
-  var res = { month: month, months: Object.keys(months).sort().reverse(), rows: rows };
-  if (acct) {
-    var found = balances_(loadAccounts_(), tx).accounts.filter(function (a) { return a.id === acct; })[0];
-    if (found) res.account = found;
-  }
-  return res;
-}
-
-function reviewQueue_() {
-  var tx = loadTx_();
-  var rows = tx.filter(function (r) { return r.status === 'review'; })
-    .sort(function (a, b) { return a.datetime < b.datetime ? 1 : -1; }).slice(0, 100).map(publicRow_);
-  return {
-    rows: rows,
-    categories: categories_(tx),
-    accounts: loadAccounts_().map(function (a) { return { id: a.id, name: a.name, type: a.type }; })
-  };
+  var rows = loadTx_().filter(function (r) { return monthOf_(r) === month; }).sort(byNewest_).map(clientRow_);
+  return { month: month, rows: rows };
 }
 
 /* ---------- writing ---------- */
@@ -181,45 +195,43 @@ function findRow_(id) {
   throw new Error('not found');
 }
 
-function colIndex_(name) { return TABS.Transactions.indexOf(name) + 1; }
-
 function text_(v, max) { return String(v === undefined || v === null ? '' : v).trim().slice(0, max || 80); }
 
 function setCategory_(req) {
   var f = findRow_(req.id);
+  var head = TABS.Transactions;
+  var range = f.sh.getRange(f.row, 1, 1, head.length);
+  var vals = range.getValues()[0];
   var cur = {};
-  var vals = f.sh.getRange(f.row, 1, 1, TABS.Transactions.length).getValues()[0];
-  TABS.Transactions.forEach(function (h, i) { cur[h] = vals[i]; });
+  head.forEach(function (h, i) { cur[h] = vals[i]; });
 
-  var set = {};
-  if (req.category !== undefined) set.category = text_(req.category, 40);
-  if (req.tag !== undefined) set.tag = text_(req.tag, 40);
-  if (req.merchant !== undefined) set.merchant = text_(req.merchant, 80);
-  if (req.note !== undefined) set.note = text_(req.note, 200);
-  if (req.account !== undefined) set.account = text_(req.account, 40);
-  if (req.toAccount !== undefined) set.toAccount = text_(req.toAccount, 40);
+  if (req.category !== undefined) cur.category = text_(req.category, 40);
+  if (req.tag !== undefined) cur.tag = text_(req.tag, 40);
+  if (req.merchant !== undefined) cur.merchant = text_(req.merchant, 80);
+  if (req.note !== undefined) cur.note = text_(req.note, 200);
+  if (req.account !== undefined) cur.account = text_(req.account, 40);
+  if (req.toAccount !== undefined) cur.toAccount = text_(req.toAccount, 40);
   if (req.direction !== undefined) {
     if (DIRECTIONS_.indexOf(req.direction) < 0) throw new Error('bad direction');
-    set.direction = req.direction;
+    cur.direction = req.direction;
   }
   if (req.amount !== undefined && req.amount !== '') {
     var amt = Number(req.amount);
     if (!isFinite(amt) || amt < 0) throw new Error('bad amount');
-    set.amount = Math.round(amt * 100) / 100;
+    cur.amount = Math.round(amt * 100) / 100;
   }
-  Object.keys(set).forEach(function (k) { cur[k] = set[k]; });
 
   var needsDest = (cur.direction === 'transfer' || cur.direction === 'card_payment') && !cur.toAccount;
   var amountMissing = cur.amount === '' || cur.amount === null;
-  set.status = (cur.account && !needsDest && !amountMissing) ? 'ok' : 'review';
-  Object.keys(set).forEach(function (k) { f.sh.getRange(f.row, colIndex_(k)).setValue(set[k]); });
+  cur.status = (cur.account && !needsDest && !amountMissing) ? 'ok' : 'review';
+  range.setValues([head.map(function (h) { return cur[h]; })]);
 
   var ruleAdded = false;
   if (req.applyToMerchant && cur.merchantRaw && cur.category) {
     ruleAdded = addRule_(String(cur.merchantRaw), cur.merchant || String(cur.merchantRaw), cur.category, cur.tag);
     if (ruleAdded) reapplyRules();
   }
-  return { id: req.id, status: set.status, ruleAdded: ruleAdded };
+  return { id: req.id, status: cur.status, ruleAdded: ruleAdded };
 }
 
 function addRule_(pattern, name, category, tag) {
