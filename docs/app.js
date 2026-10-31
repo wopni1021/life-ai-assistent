@@ -404,7 +404,11 @@
   /* ---------- transaction lists (Home, Activity, account screen) ---------- */
   /** One day-grouped list of rows. When accountId is set, signs show what each row did to that account. */
   function txnGroups(rows, accountId) {
-    var out = [], card = null, lastDay = '';
+    var out = [], card = null, lastDay = '', ctx = makeCtx();
+    function accountLabel(r) {
+      if (accountId || !r.account) return '';
+      return ctx.accountName(r.account) + (r.toAccount ? ' \u2192 ' + ctx.accountName(r.toAccount) : '');
+    }
     rows.forEach(function (r) {
       var day = r.datetime.slice(0, 10);
       if (day !== lastDay) {
@@ -414,8 +418,8 @@
       }
       var change = accountId ? rowDelta(r, accountId) : (r.direction === 'adjust' ? Number(r.amount) : r.direction === 'out' ? -1 : (r.direction === 'in' || r.direction === 'refund') ? 1 : 0);
       var sign = change > 0 ? '+' : change < 0 ? '\u2212' : '';
-      var notes = [r.category || 'Uncategorised', r.tag ? ' \u00b7 ' + r.tag : '',
-        r.status === 'guess' ? ' \u00b7 unsorted' : '', r.status === 'review' ? ' \u00b7 needs attention' : '', r.status === 'dup' ? ' \u00b7 duplicate' : ''];
+      var notes = [accountLabel(r), r.category || 'Uncategorised', r.tag, r.status === 'guess' ? 'unsorted' : '',
+        r.status === 'review' ? 'needs attention' : '', r.status === 'dup' ? 'duplicate' : ''].filter(Boolean).join(' \u00b7 ');
       card.append(h('button', { class: 'tx', onclick: function () { openSheet(r); } },
         h('div', { class: 'm' }, h('div', { class: 'title' }, r.merchant || r.merchantRaw || 'Entry'), h('div', { class: 'small muted' }, notes)),
         h('div', { class: 'amt num' + (change > 0 ? ' in' : '') }, r.amount === '' ? '?' : sign + fmt(Math.abs(Number(r.amount))))));
@@ -520,8 +524,10 @@
     var amount = h('input', { type: 'text', id: 'add-amount', inputmode: 'decimal', placeholder: '0.00', autocomplete: 'off' });
     var merchant = h('input', { type: 'text', id: 'add-merchant', placeholder: 'e.g. Wet market', autocomplete: 'off' });
     var tag = h('input', { type: 'text', id: 'add-tag', placeholder: 'e.g. fish', autocomplete: 'off' });
-    var date = h('input', { type: 'date', id: 'add-date', value: todayStr() });
+    var date = h('input', { type: 'date', id: 'add-date', value: state.nextAdd ? state.nextAdd.date : todayStr() });
     var acct = h('select', { id: 'add-account' }, d.accounts.map(function (a) { return h('option', { value: a.id }, a.name); }));
+    if (state.nextAdd) acct.value = state.nextAdd.account;
+    state.nextAdd = null;
     var chipBox = h('div', { class: 'chips' });
     var kindBox = h('div', { class: 'chips' });
     function drawKind() {
@@ -534,12 +540,20 @@
       d.categories.forEach(function (c) { chipBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(c === selected), onclick: function () { selected = c; drawChips(); } }, c)); });
     }
     drawKind(); drawChips();
-    var save = h('button', { class: 'btn', onclick: function () {
+    /** Saves, then shows the list with the new entry, or a fresh form when adding several. */
+    function submit(another) {
       var v = parseMoney(amount.value);
       if (isNaN(v) || v <= 0) return toast('Enter an amount');
       if (kind === 'out' && !selected) return toast('Pick a category');
       var payload = { amount: v, direction: kind, merchant: merchant.value.trim(), category: kind === 'in' ? 'Income' : selected, tag: tag.value.trim(), account: acct.value, date: date.value };
       var delta = kind === 'in' ? v : -v;
+      if (another) {
+        state.nextAdd = { account: payload.account, date: payload.date };
+      } else {
+        state.tab = 'txns'; state.account = null; state.filter = 'all'; state.query = '';
+        state.month = payload.date.slice(0, 7);
+        store.set('le_tab', 'txns'); buildTabs();
+      }
       mutate('addManual', payload, function () {
         var id = 'tmp-' + Date.now();
         db.rows.unshift({ id: id, datetime: payload.date + 'T12:00:00', direction: kind, amount: v, account: payload.account, toAccount: '', merchantRaw: payload.merchant,
@@ -547,8 +561,9 @@
         db.recentIds.unshift(id);
         moveBalance(payload.account, delta);
       });
-      toast('Added');
-    } }, 'Add entry');
+      if (!another) window.scrollTo(0, 0);
+      toast(another ? 'Added. Enter the next one.' : 'Added');
+    }
     show(h('div', { class: 'card editor' },
       h('h2', null, 'Add an entry'),
       h('div', { class: 'small muted' }, 'For cash and anything the bank did not email about.'),
@@ -559,7 +574,8 @@
       h('label', { class: 'field' }, 'Keyword', tag),
       h('label', { class: 'field' }, 'Paid from', acct),
       h('label', { class: 'field' }, 'Date', date),
-      save));
+      h('button', { class: 'btn', onclick: function () { submit(false); } }, 'Add entry'),
+      h('button', { class: 'btn ghost', onclick: function () { submit(true); } }, 'Add and enter another')));
   }
 
   /* ---------- settings ---------- */
