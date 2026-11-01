@@ -6,7 +6,7 @@ exports/
 *.key
 
 # Generated test page (built from Parsers.gs + tests/run.html)
-backend/apps-script/tests/run-inline.html
+projects/expenses/backend/tests/run-inline.html
 
 .DS_Store
 docs-preview.html

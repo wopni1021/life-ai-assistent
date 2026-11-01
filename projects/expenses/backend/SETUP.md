@@ -6,9 +6,9 @@ This creates your expense sheet and a script that reads DBS and UOB alert emails
 1. Go to https://sheets.new and name the sheet "Life Expenses".
 2. Menu: Extensions > Apps Script. A code editor opens.
 3. Delete the default `myFunction` code in the file `Code.gs`.
-4. Paste in everything from `backend/apps-script/Code.gs` (replace the whole file).
-5. Click the plus next to Files > Script, name it `Parsers`, and paste in `backend/apps-script/Parsers.gs`.
-6. Click the gear (Project Settings), tick "Show appsscript.json manifest file", go back to the editor, open `appsscript.json` and paste in `backend/apps-script/appsscript.json`.
+4. Paste in everything from `projects/expenses/backend/Code.gs` (replace the whole file).
+5. Click the plus next to Files > Script, name it `Parsers`, and paste in `projects/expenses/backend/Parsers.gs`.
+6. Click the gear (Project Settings), tick "Show appsscript.json manifest file", go back to the editor, open `appsscript.json` and paste in `projects/expenses/backend/appsscript.json`.
 7. Click Save.
 
 ## 2. Run setup
@@ -31,7 +31,7 @@ This creates your expense sheet and a script that reads DBS and UOB alert emails
 4. New alerts are fetched when you open the app or pull down to refresh. Run `checkMail` to fetch by hand. After adding rules in the sheet, run `reapplyRules`.
 
 ## 5. Turn on the phone app's connection (second install step)
-1. In Apps Script, add two new script files named `Ledger` and `Api` and paste in `Ledger.gs` and `Api.gs`. Replace `appsscript.json` with the new version (it now has a `webapp` block). Save.
+1. In Apps Script, add two new script files named `Ledger` and `Api` and paste in `Ledger.gs` and `Api.gs` from `projects/expenses/backend/`. Replace `appsscript.json` with the new version (it now has a `webapp` block). Save.
 2. Choose `makeToken` in the function drop-down and click Run. A box shows your secret app token. Copy it somewhere private. Running `makeToken` again creates a new token and signs out every phone.
 3. Click **Deploy** (top right) > **New deployment**. Click the gear next to "Select type", choose **Web app**. Set "Execute as" to **Me** and "Who has access" to **Anyone**. Click **Deploy** and approve the permission screens.
 4. Copy the **Web app URL** (ends in `/exec`). The phone app needs this URL and the token. Keep the URL private too.
@@ -40,7 +40,7 @@ This creates your expense sheet and a script that reads DBS and UOB alert emails
 In the Accounts tab, add a row for cash if you want to track it (`id` cash, `name` Cash, `type` bank, `bank` manual).
 
 ## 6. Put the app online
-The app lives in the `docs/` folder. In the GitHub repo, upload `docs/` and open **Settings > Pages**: Source "Deploy from a branch", branch `main`, folder `/docs`. The address will be `https://wopni1021.github.io/life-ai-assistent/`. Open it on the iPhone in Safari, enter the web app URL and token once, then Share > Add to Home Screen.
+The app lives in `projects/expenses/app/`. A GitHub Actions workflow (`.github/workflows/pages.yml`) publishes it on every push to `main`. In the GitHub repo, open **Settings > Pages** and set Source to "GitHub Actions" (do this before the first push of the workflow). The address is `https://wopni1021.github.io/life-ai-assistent/`. Open it on the iPhone in Safari, enter the web app URL and token once, then Share > Add to Home Screen.
 
 ## Rules tab
 Each row: `pattern` (text the merchant name contains, not case-sensitive; or `re:` followed by a regular expression), then `name`, `category`, `tag`. The first matching row wins.

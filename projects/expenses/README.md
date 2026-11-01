@@ -1,11 +1,11 @@
 # Expense tracker
 
-Status: DBS and UOB reader and phone app (Home, Activity, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. OCBC reader still to do. Tests: 42 pass in `backend/apps-script/tests/run.html`.
+Status: DBS and UOB reader and phone app (Home, Activity, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. OCBC reader still to do. Tests: 42 pass in `projects/expenses/backend/tests/run.html`.
 
 Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`. The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
 Repo: https://github.com/wopni1021/life-ai-assistent (public; never commit personal data).
-Reader code: `backend/apps-script/` (setup steps in `SETUP.md`).
+Reader code: `projects/expenses/backend/` (setup steps in `SETUP.md`).
 
 ## Goal
 - See total money across all accounts at a glance.
