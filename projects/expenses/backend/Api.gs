@@ -57,7 +57,10 @@ function handle_(req) {
   var a = req.action;
   if (a === 'sync') return sync_(req);
   if (a === 'list') return list_(req);
-  var writes = { setCategory: setCategory_, addManual: addManual_, setBalance: setBalance_, deleteRow: deleteRow_ };
+  var writes = {
+    setCategory: setCategory_, addManual: addManual_, setBalance: setBalance_, deleteRow: deleteRow_,
+    voucherSave: voucherSave_, voucherUse: voucherUse_, voucherDelete: voucherDelete_
+  };
   if (writes[a]) {
     var lock = LockService.getScriptLock();
     lock.waitLock(15000);
@@ -153,7 +156,9 @@ function snapshot_() {
     lastAlertAt: last,
     categories: categories_(tx),
     rows: rows,
-    recentIds: recent.map(function (r) { return r.id; })
+    recentIds: recent.map(function (r) { return r.id; }),
+    vouchers: loadVouchers_(),
+    voucherWarnDays: voucherWarnDays_()
   };
 }
 

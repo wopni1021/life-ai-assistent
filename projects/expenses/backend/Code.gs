@@ -9,7 +9,8 @@ var TABS = {
   Rules: ['pattern', 'name', 'category', 'tag'],
   Settings: ['key', 'value'],
   Unparsed: ['id', 'datetime', 'from', 'subject', 'snippet'],
-  Seen: ['id', 'seenAt']
+  Seen: ['id', 'seenAt'],
+  Vouchers: ['id', 'name', 'amountLeft', 'expires', 'note', 'status', 'createdAt']
 };
 
 var ALERT_SENDERS = 'from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com)';
@@ -88,6 +89,7 @@ function onEdit() {
 
 function rows_(name) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sh) return [];
   var n = sh.getLastRow();
   if (n < 2) return [];
   var head = TABS[name];

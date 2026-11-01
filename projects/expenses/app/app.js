@@ -105,6 +105,7 @@
   var TABS = [
     ['home', 'Home', '<path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6H9v6H5a1 1 0 01-1-1z"/>'],
     ['txns', 'Activity', '<path d="M5 7h14M5 12h14M5 17h9"/>'],
+    ['vouchers', 'Vouchers', '<path d="M3 8a2 2 0 012-2h14a2 2 0 012 2v2.5a1.5 1.5 0 000 3V16a2 2 0 01-2 2H5a2 2 0 01-2-2v-2.5a1.5 1.5 0 000-3z"/><path d="M14 6v12" stroke-dasharray="2 2.5"/>'],
     ['add', 'Add', '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>']
   ];
   function buildTabs() {
@@ -113,6 +114,10 @@
       var b = h('button', { role: 'tab', 'data-tab': t[0], 'aria-selected': String(state.tab === t[0]), onclick: function () { setTab(t[0]); } });
       b.innerHTML = '<svg viewBox="0 0 24 24">' + t[2] + '</svg>';
       b.append(t[1]);
+      if (t[0] === 'vouchers' && db) {
+        var due = dueVouchers();
+        if (due.length) b.append(h('span', { class: 'badge' + (due[0].level === 'urgent' ? ' urgent' : '') }, String(due.length)));
+      }
       nav.append(b);
     });
     nav.hidden = !(cfg.token && (cfg.token === 'demo' || cfg.url));
@@ -127,7 +132,7 @@
     $('#tabs').hidden = false;
     if (!db) { loading(); sync(true); return; }
     if (state.tab === 'home' && state.account) return renderTxns(state.account);
-    ({ home: renderHome, txns: function () { renderTxns(null); }, add: renderAdd })[state.tab]();
+    ({ home: renderHome, txns: function () { renderTxns(null); }, vouchers: renderVouchers, add: renderAdd })[state.tab]();
   }
   function signOut() {
     store.del('le_url'); store.del('le_token'); store.del('le_db'); store.del('le_synced');
@@ -137,7 +142,7 @@
 
   /* ---------- data ---------- */
   function saveDb() { store.set('le_db', JSON.stringify(db)); }
-  function setDb(d) { delete d.fetchFailed; db = d; monthCache = {}; saveDb(); }
+  function setDb(d) { delete d.fetchFailed; db = d; monthCache = {}; saveDb(); buildTabs(); }
   function setStatus() {
     var el = $('#sync-status');
     if (!connected()) { el.textContent = ''; return; }
@@ -151,13 +156,13 @@
     return !!document.querySelector('.overlay') || state.tab === 'add' || !!document.querySelector('details.fix[open]') ||
       !!(a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));
   }
-  function drawNow() { var y = window.scrollY; render(); window.scrollTo(0, y); }
+  function drawNow() { var y = window.scrollY; buildTabs(); render(); window.scrollTo(0, y); }
   /** Fetches new alerts and fresh numbers. force skips the "nothing changed" shortcut. */
   function sync(force) {
     if (syncing) return syncing;
     if (!connected()) return Promise.resolve();
     var t0 = Date.now();
-    syncing = api('sync', { version: db ? db.version : '', force: !!force || !db }).then(function (d) {
+    syncing = api('sync', { version: db ? db.version : '', force: !!force || !db || !db.vouchers }).then(function (d) {
       lastSyncMs = Date.now() - t0; lastSyncAt = Date.now(); store.set('le_synced', String(lastSyncAt));
       syncProblem = d.fetchFailed ? 'Could not check email. Showing what is saved.' : '';
       if (!d.unchanged && pending === 0) {
@@ -254,6 +259,8 @@
     var b = s.balances, m = s.month;
     var banks = b.accounts.filter(function (a) { return a.type !== 'card'; });
     var out = [];
+    var banner = voucherBanner();
+    if (banner) out.push(banner);
     out.push(h('div', { class: 'card hero' },
       h('div', { class: 'label' }, 'Total money'),
       h('div', { class: 'big num' }, fmt(b.totalMoney)),
@@ -514,6 +521,123 @@
     var overlay = h('div', { class: 'overlay', onclick: function (e) { if (e.target === overlay) close(); } });
     function close() { overlay.remove(); }
     overlay.append(h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, h('div', { class: 'grab' }), editor(row, { onClose: close })));
+    document.body.append(overlay);
+  }
+
+  /* ---------- vouchers ---------- */
+  function voucherList() {
+    var today = todayStr(), warn = db.voucherWarnDays || 30;
+    return (db.vouchers || []).map(function (v) {
+      var u = voucherUrgency(v.expires, today, warn);
+      return { voucher: v, level: u.level, daysLeft: u.daysLeft };
+    }).sort(function (a, b) {
+      if (a.daysLeft === null) return b.daysLeft === null ? 0 : 1;
+      return b.daysLeft === null ? -1 : a.daysLeft - b.daysLeft;
+    });
+  }
+  /** Unused vouchers close to expiring, soonest first. */
+  function dueVouchers() {
+    return voucherList().filter(function (x) {
+      return x.voucher.status !== 'used' && (x.level === 'urgent' || x.level === 'soon');
+    });
+  }
+  function voucherBanner() {
+    var due = dueVouchers();
+    if (!due.length) return null;
+    var lines = due.slice(0, 3).map(function (x) {
+      return h('div', { class: 'line' }, x.voucher.name + ' ' + fmt(x.voucher.amountLeft) + ' left, ' + voucherDueText(x.daysLeft).toLowerCase());
+    });
+    return h('button', { class: 'vbanner' + (due[0].level === 'urgent' ? ' urgent' : ''), onclick: function () { setTab('vouchers'); } },
+      h('div', { class: 'head' }, due.length === 1 ? 'Voucher expiring soon' : due.length + ' vouchers expiring soon'),
+      lines,
+      due.length > 3 ? h('div', { class: 'line' }, '+' + (due.length - 3) + ' more') : null);
+  }
+  function fullDate(ymd) {
+    var p = ymd.split('-').map(Number);
+    return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  function voucherRow(x) {
+    var v = x.voucher, used = v.status === 'used';
+    return h('button', { class: 'tx', onclick: function () { openVoucher(v); } },
+      h('div', { class: 'm' }, h('div', { class: 'title' }, v.name),
+        h('div', { class: 'vdue ' + (used ? '' : x.level) }, used ? 'Used' : voucherDueText(x.daysLeft) + (v.expires ? ' \u00b7 ' + fullDate(v.expires) : '')),
+        v.note ? h('div', { class: 'small muted' }, v.note) : null),
+      h('div', { class: 'amt num' }, fmt(v.amountLeft)));
+  }
+  function renderVouchers() {
+    var all = voucherList();
+    var active = all.filter(function (x) { return x.voucher.status !== 'used' && x.level !== 'expired'; });
+    var expired = all.filter(function (x) { return x.voucher.status !== 'used' && x.level === 'expired'; });
+    var used = all.filter(function (x) { return x.voucher.status === 'used'; });
+    var total = active.reduce(function (sum, x) { return sum + x.voucher.amountLeft; }, 0);
+    function fold(label, items) {
+      if (!items.length) return null;
+      return h('details', { class: 'vfold' }, h('summary', null, label + ' (' + items.length + ')'), h('div', { class: 'card list' }, items.map(voucherRow)));
+    }
+    show(h('div', { class: 'stack' },
+      h('div', { class: 'card vtotal' },
+        h('div', { class: 'label' }, 'Left on vouchers'),
+        h('div', { class: 'big num' }, fmt(total)),
+        h('div', { class: 'small muted' }, active.length + (active.length === 1 ? ' voucher' : ' vouchers') + '. Not counted in Total money.')),
+      h('button', { class: 'btn', onclick: function () { openVoucher(null); } }, 'Add a voucher'),
+      active.length ? h('div', { class: 'card list' }, active.map(voucherRow))
+        : h('div', { class: 'card empty' }, 'No vouchers yet. Add one and you will be warned before it expires.'),
+      fold('Expired', expired), fold('Used', used)));
+  }
+  /** voucher null adds a new one. */
+  function openVoucher(voucher) {
+    var v = voucher || { id: 'v-' + Date.now(), name: '', amountLeft: '', expires: '', note: '' };
+    var overlay = h('div', { class: 'overlay', onclick: function (e) { if (e.target === overlay) close(); } });
+    function close() { overlay.remove(); }
+    function current() { return (db.vouchers || []).filter(function (x) { return x.id === v.id; })[0]; }
+    function spend(amount) {
+      if (isNaN(amount) || amount <= 0) return toast('Enter the amount used');
+      if (amount > v.amountLeft) return toast('That is more than what is left');
+      close();
+      mutate('voucherUse', { id: v.id, amount: amount }, function () {
+        var c = current();
+        c.amountLeft = Math.round((c.amountLeft - amount) * 100) / 100;
+        c.status = c.amountLeft === 0 ? 'used' : 'active';
+      });
+    }
+    var usedInput = h('input', { type: 'text', id: 'v-used', inputmode: 'decimal', placeholder: 'Amount used', autocomplete: 'off' });
+    var name = h('input', { type: 'text', id: 'v-name', value: v.name, placeholder: 'e.g. NTUC', autocomplete: 'off' });
+    var amount = h('input', { type: 'text', id: 'v-amount', inputmode: 'decimal', value: v.amountLeft === '' ? '' : String(v.amountLeft), placeholder: '0.00', autocomplete: 'off' });
+    var expires = h('input', { type: 'date', id: 'v-expires', value: v.expires });
+    var note = h('input', { type: 'text', id: 'v-note', value: v.note, placeholder: 'Code, or where it works', autocomplete: 'off' });
+    var save = h('button', { class: 'btn', onclick: function () {
+      var left = parseMoney(amount.value);
+      if (!name.value.trim()) return toast('Enter a name');
+      if (isNaN(left) || left < 0) return toast('Enter the amount left');
+      var payload = { id: v.id, name: name.value.trim(), amountLeft: left, expires: expires.value, note: note.value.trim() };
+      close();
+      mutate('voucherSave', payload, function () {
+        var rec = current();
+        if (!rec) { rec = { id: v.id }; db.vouchers = (db.vouchers || []).concat([rec]); }
+        Object.assign(rec, payload, { status: left === 0 ? 'used' : 'active' });
+      });
+    } }, voucher ? 'Save' : 'Add voucher');
+    var confirmed = false;
+    var del = h('button', { class: 'btn danger', onclick: function () {
+      if (!confirmed) { confirmed = true; del.textContent = 'Tap again to delete'; return; }
+      close();
+      mutate('voucherDelete', { id: v.id }, function () {
+        db.vouchers = db.vouchers.filter(function (x) { return x.id !== v.id; });
+      });
+    } }, 'Delete');
+    var open = voucher && voucher.status !== 'used' && voucher.amountLeft > 0;
+    overlay.append(h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, h('div', { class: 'grab' }),
+      h('div', { class: 'card editor' },
+        h('h2', null, voucher ? v.name : 'Add a voucher'),
+        open ? h('div', { class: 'small muted' }, fmt(v.amountLeft) + ' left') : null,
+        open ? h('div', { class: 'vuse' }, usedInput, h('button', { class: 'btn', onclick: function () { spend(parseMoney(usedInput.value)); } }, 'Use')) : null,
+        open ? h('button', { class: 'btn ghost', onclick: function () { spend(v.amountLeft); } }, 'Mark fully used') : null,
+        h('label', { class: 'field' }, 'Name', name),
+        h('label', { class: 'field' }, 'Amount left (SGD)', amount),
+        h('label', { class: 'field' }, 'Expires', expires),
+        h('label', { class: 'field' }, 'Note', note),
+        h('div', { class: 'btn-row' }, h('button', { class: 'btn ghost', onclick: close }, 'Close'), save),
+        voucher ? del : null)));
     document.body.append(overlay);
   }
 

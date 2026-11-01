@@ -4,6 +4,8 @@
 <pre id="out">running...</pre>
 <script src="../Parsers.gs"></script>
 <script src="../Ledger.gs"></script>
+<script src="../Vouchers.gs"></script>
+<script src="../../app/vouchers.js"></script>
 <script>
 // Samples are rewritten from real alert wording. Names and account numbers are made up.
 var ctx = {
@@ -157,6 +159,37 @@ cases.forEach(function (c) {
   var guessed = rows.concat([{ datetime: '2026-10-12T10:00:00', direction: 'out', amount: 7, account: 'dbs', category: 'Dining', status: 'guess' }]);
   eq('guess rows count in balances', balances_(accts, guessed).totalMoney, 4356.66);
   eq('guess rows count in spending', monthSummary_(guessed, '2026-10').total, 62);
+})();
+
+// ---- Vouchers ----
+(function () {
+  function eq(name, got, want) {
+    if (JSON.stringify(got) === JSON.stringify(want)) passed++;
+    else fails.push('Voucher ' + name + ': expected ' + JSON.stringify(want) + ' got ' + JSON.stringify(got));
+  }
+  function rejected(name, amount) {
+    try { useVoucher_({ amountLeft: 20 }, amount); fails.push('Voucher ' + name + ': should have been rejected'); }
+    catch (e) { passed++; }
+  }
+  eq('partial use', useVoucher_({ amountLeft: 20 }, 7.5), { amountLeft: 12.5, status: 'active' });
+  eq('exact use finishes it', useVoucher_({ amountLeft: 20 }, 20), { amountLeft: 0, status: 'used' });
+  eq('cents stay exact', useVoucher_({ amountLeft: 0.3 }, 0.1), { amountLeft: 0.2, status: 'active' });
+  rejected('more than left', 20.01);
+  rejected('zero', 0);
+  rejected('negative', -1);
+  rejected('not a number', 'abc');
+
+  function level(expires) { return voucherUrgency(expires, '2026-11-01', 30).level; }
+  eq('expires today', voucherUrgency('2026-11-01', '2026-11-01', 30), { level: 'urgent', daysLeft: 0 });
+  eq('tomorrow', voucherUrgency('2026-11-02', '2026-11-01', 30), { level: 'urgent', daysLeft: 1 });
+  eq('7 days', level('2026-11-08'), 'urgent');
+  eq('8 days', level('2026-11-09'), 'soon');
+  eq('30 days', level('2026-12-01'), 'soon');
+  eq('31 days', level('2026-12-02'), 'ok');
+  eq('yesterday', voucherUrgency('2026-10-31', '2026-11-01', 30), { level: 'expired', daysLeft: -1 });
+  eq('no expiry', voucherUrgency('', '2026-11-01', 30), { level: 'ok', daysLeft: null });
+  eq('due text', [voucherDueText(0), voucherDueText(1), voucherDueText(5), voucherDueText(-1), voucherDueText(-3), voucherDueText(null)],
+    ['Expires today', 'Expires tomorrow', 'Expires in 5 days', 'Expired yesterday', 'Expired 3 days ago', 'No expiry']);
 })();
 
 document.getElementById('out').textContent = passed + ' passed, ' + fails.length + ' failed\n' + fails.join('\n');

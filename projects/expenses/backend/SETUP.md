@@ -42,6 +42,9 @@ In the Accounts tab, add a row for cash if you want to track it (`id` cash, `nam
 ## 6. Put the app online
 The app lives in `projects/expenses/app/`. A GitHub Actions workflow (`.github/workflows/pages.yml`) publishes it on every push to `main`. In the GitHub repo, open **Settings > Pages** and set Source to "GitHub Actions" (do this before the first push of the workflow). The address is `https://wopni1021.github.io/life-ai-assistent/`. Open it on the iPhone in Safari, enter the web app URL and token once, then Share > Add to Home Screen.
 
+## Vouchers
+The `Vouchers` tab is created the first time you add a voucher in the app. To change when a voucher counts as due soon, add a row to the Settings tab: `voucherWarnDays` and a number of days (30 if there is no row).
+
 ## Rules tab
 Each row: `pattern` (text the merchant name contains, not case-sensitive; or `re:` followed by a regular expression), then `name`, `category`, `tag`. The first matching row wins.
 

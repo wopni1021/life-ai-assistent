@@ -2,7 +2,7 @@
 
 Status: DBS and UOB reader and phone app (Home, Activity, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. OCBC reader still to do. Tests: 42 pass in `projects/expenses/backend/tests/run.html`.
 
-Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`. The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
+Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`. The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
 Repo: https://github.com/wopni1021/life-ai-assistent (public; never commit personal data).
 Reader code: `projects/expenses/backend/` (setup steps in `SETUP.md`).
@@ -65,6 +65,11 @@ Implications:
 - Quick manual add in a few taps.
 - Opens from a saved copy; updates in the background.
 - Unsorted and Needs attention filters in Activity. Nothing blocks.
+
+## Vouchers
+- Tracks how much is left on each dollar-value voucher and when it expires. Tab `Vouchers`: `id, name, amountLeft, expires, note, status, createdAt`. `status` is `active` or `used`. Not counted in Total money.
+- Due soon means within `voucherWarnDays` (Settings tab, default 30). Red at 7 days or fewer, amber before that. Shown as a banner at the top of Home and a count on the Vouchers tab. Worked out on the phone from today's date.
+- In-app warning only, so a voucher can expire unseen if the app isn't opened. Using a voucher is entered by hand and keeps no history.
 
 ## Sharing
 Only the user.

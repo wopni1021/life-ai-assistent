@@ -15,6 +15,18 @@
     { id: 't7', datetime: '2026-10-22T21:31:00', direction: 'card_payment', amount: 1593.82, account: 'uob-account', toAccount: 'uob-card', merchantRaw: 'UOB Card', merchant: 'Card payment', category: 'Transfer', bank: 'UOB', status: 'ok' },
     { id: 't8', datetime: '2026-09-28T19:00:00', direction: 'out', amount: 21.5, account: 'uob-card', merchantRaw: 'NOODLE HOUSE', merchant: 'Noodle House', category: 'Dining', tag: 'hawker', bank: 'UOB', status: 'ok' }
   ];
+  function dayFrom(n) {
+    var d = new Date(Date.now() + n * 86400000);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  var vouchers = [
+    { id: 'v-1', name: 'Supermarket gift card', amountLeft: 20, expires: dayFrom(5), note: 'Code 0012', status: 'active' },
+    { id: 'v-2', name: 'Cafe voucher', amountLeft: 7.5, expires: dayFrom(21), note: '', status: 'active' },
+    { id: 'v-3', name: 'Bookshop', amountLeft: 50, expires: dayFrom(120), note: '', status: 'active' },
+    { id: 'v-4', name: 'Hair salon', amountLeft: 30, expires: '', note: 'No expiry', status: 'active' },
+    { id: 'v-5', name: 'Old cinema voucher', amountLeft: 12, expires: dayFrom(-10), note: '', status: 'active' },
+    { id: 'v-6', name: 'Finished voucher', amountLeft: 0, expires: dayFrom(40), note: '', status: 'used' }
+  ];
   var categories = ['Dining', 'Groceries', 'Transport', 'Shopping', 'Baby', 'Health', 'Bills', 'Subscriptions', 'Entertainment', 'Household', 'Personal care', 'Other'];
   var MONTH = '2026-10';
   var version = 1;
@@ -55,7 +67,9 @@
       },
       months: [MONTH, '2026-09'], banksSeen: ['DBS', 'UOB'], lastAlertAt: '2026-10-27T12:21:00', categories: categories,
       rows: sorted.filter(function (r) { return r.datetime.slice(0, 7) === MONTH || r.status === 'review' || r.status === 'guess' || recent.indexOf(r.id) >= 0; }).map(withEffects),
-      recentIds: recent
+      recentIds: recent,
+      vouchers: vouchers,
+      voucherWarnDays: 30
     };
   }
   function done(extra) {
@@ -93,6 +107,20 @@
       if (ac.type === 'card') ac.sinceLastPayment = Math.max(0, -ac.balance);
       return done({ change: 0, balance: ac.balance });
     }
+    if (a === 'voucherSave') {
+      var v = vouchers.filter(function (x) { return x.id === req.id; })[0];
+      if (!v) { v = { id: req.id }; vouchers.push(v); }
+      v.name = req.name; v.amountLeft = req.amountLeft; v.expires = req.expires; v.note = req.note;
+      v.status = req.amountLeft === 0 ? 'used' : 'active';
+      return done({ id: req.id });
+    }
+    if (a === 'voucherUse') {
+      var u = vouchers.filter(function (x) { return x.id === req.id; })[0];
+      u.amountLeft = round(u.amountLeft - req.amount);
+      u.status = u.amountLeft === 0 ? 'used' : 'active';
+      return done({ id: req.id, amountLeft: u.amountLeft });
+    }
+    if (a === 'voucherDelete') { vouchers = vouchers.filter(function (x) { return x.id !== req.id; }); return done({ id: req.id }); }
     if (a === 'deleteRow') { tx = tx.filter(function (x) { return x.id !== req.id; }); return done({ id: req.id }); }
     return Promise.reject(new Error('unknown action'));
   };
