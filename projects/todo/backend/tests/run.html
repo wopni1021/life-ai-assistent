@@ -1,0 +1,157 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Todo tests</title>
+<pre id="out">running...</pre>
+<script src="../../app/parser.js"></script>
+<script>
+// Ai.gs and Push.gs reach Apps Script only inside functions, so their pure parts load here.
+var TODO = '2026-10-31'; // A Saturday.
+</script>
+<script src="../Ai.gs"></script>
+<script src="../Push.gs"></script>
+<script>
+var cases = [
+  // Your own examples.
+  ['买维生素D,两周内完成。', { text: '买维生素D', due: '2026-11-14', group: '买东西' }],
+  ['给宝宝买维生素D两周内完成', { text: '给宝宝买维生素D', due: '2026-11-14', group: '买东西' }],
+  ['买尿布', { text: '买尿布', due: '2026-11-07', dated: false, group: '买东西' }],
+  ['今天把车送去保养', { text: '把车送去保养', due: '2026-10-31', group: '出门办' }],
+  ['给车打气这周内', { text: '给车打气', due: '2026-11-01', group: '出门办' }],
+  ['明天转账给房东', { text: '转账给房东', due: '2026-11-01', group: '手机办' }],
+  ['报销保险下周三之前', { text: '报销保险', due: '2026-11-04', group: '手机办' }],
+  ['买勺子不急', { text: '买勺子', due: '2026-11-30', group: '买东西' }],
+
+  // Exactly as iPhone dictation types it: full-width punctuation and digits.
+  ['买维生素D，两周内完成。', { text: '买维生素D', due: '2026-11-14', group: '买东西' }],
+  ['明天，买尿布！', { text: '买尿布', due: '2026-11-01' }],
+  ['嗯，那个，买奶粉吧？', { text: '买奶粉', dated: false }],
+  ['２周内买牙膏', { text: '买牙膏', due: '2026-11-14' }],
+  ['提醒我：下周三交费；', { text: '交费', due: '2026-11-04' }],
+  ['买尿布，买勺子', { text: '买尿布，买勺子', dated: false }],
+
+  // Days.
+  ['今晚洗碗', { text: '洗碗', due: '2026-10-31', group: '在家做' }],
+  ['明早取快递', { text: '取快递', due: '2026-11-01', group: '出门办' }],
+  ['后天寄文件', { text: '寄文件', due: '2026-11-02' }],
+  ['大后天打疫苗', { text: '打疫苗', due: '2026-11-03' }],
+  ['马上还信用卡', { text: '还信用卡', due: '2026-10-31' }],
+  ['过两天买奶粉', { text: '买奶粉', due: '2026-11-02' }],
+  ['这几天买纸巾', { text: '买纸巾', due: '2026-11-03' }],
+  ['3天内买奶瓶', { text: '买奶瓶', due: '2026-11-03' }],
+  ['三天后买奶瓶', { text: '买奶瓶', due: '2026-11-03' }],
+  ['十天内缴费', { text: '缴费', due: '2026-11-10' }],
+
+  // Weeks and months.
+  ['2周内买牙膏', { text: '买牙膏', due: '2026-11-14' }],
+  ['两个星期内买湿巾', { text: '买湿巾', due: '2026-11-14' }],
+  ['一周内买尿不湿', { text: '买尿不湿', due: '2026-11-07' }],
+  ['半个月内换轮胎', { text: '换轮胎', due: '2026-11-14' }],
+  ['一个月内续保险', { text: '续保险', due: '2026-11-30' }],
+  ['两个月内年检', { text: '年检', due: '2026-12-31' }],
+  ['这周买菜', { text: '买菜', due: '2026-11-01' }],
+  ['周末洗车', { text: '洗车', due: '2026-10-31', group: '出门办' }],
+  ['下周买书', { text: '买书', due: '2026-11-08' }],
+  ['下周末去医院', { text: '去医院', due: '2026-11-07', group: '出门办' }],
+  ['下下周之前买书', { text: '买书', due: '2026-11-15' }],
+  ['下下周二买书', { text: '买书', due: '2026-11-10' }],
+  ['周三买书', { text: '买书', due: '2026-11-04' }],
+  ['星期天买书', { text: '买书', due: '2026-11-01' }],
+  ['礼拜五买书', { text: '买书', due: '2026-11-06' }],
+  ['这周五买书', { text: '买书', due: '2026-11-06' }],
+  ['下周三买书', { text: '买书', due: '2026-11-04' }],
+
+  // Calendar dates.
+  ['月底前交费', { text: '交费', due: '2026-10-31' }],
+  ['下个月买书', { text: '买书', due: '2026-11-30' }],
+  ['下个月5号买书', { text: '买书', due: '2026-11-05' }],
+  ['11月5号买书', { text: '买书', due: '2026-11-05' }],
+  ['十一月五号买书', { text: '买书', due: '2026-11-05' }],
+  ['12月25日买礼物', { text: '买礼物', due: '2026-12-25' }],
+  ['1月3号买书', { text: '买书', due: '2027-01-03' }],
+  ['5号买书', { text: '买书', due: '2026-11-05' }],
+  ['二十号买书', { text: '买书', due: '2026-11-20' }],
+  ['11/20 买书', { text: '买书', due: '2026-11-20' }],
+
+  // Words that look like dates but are not.
+  ['买5号电池', { text: '买5号电池', dated: false }],
+  ['去3号楼拿东西', { text: '去3号楼拿东西', dated: false }],
+  ['买三天的菜', { text: '买三天的菜', dated: false }],
+  ['买三月的杂志', { text: '买三月的杂志', dated: false }],
+
+  // Earliest phrase wins.
+  ['明天去超市买周末要用的东西', { due: '2026-11-01', group: '买东西' }],
+
+  // Filler.
+  ['记得明天买尿布', { text: '买尿布', due: '2026-11-01' }],
+  ['提醒我下周三把车送去保养', { text: '把车送去保养', due: '2026-11-04' }],
+  ['嗯,那个,买奶粉吧', { text: '买奶粉', dated: false }],
+  ['别忘了今天缴费', { text: '缴费', due: '2026-10-31' }],
+  ['今天要买尿布', { text: '买尿布', due: '2026-10-31' }],
+  ['明天', { text: '明天', due: '2026-11-01' }],
+
+  // Repeats.
+  ['每个月给车打气', { text: '给车打气', repeat: '1m', due: '2026-11-07', group: '出门办' }],
+  ['每周三倒垃圾', { text: '倒垃圾', repeat: 'w3', due: '2026-11-04', group: '在家做' }],
+  ['每两周买尿布', { text: '买尿布', repeat: '2w', due: '2026-11-07' }],
+  ['每天喂维生素', { repeat: '1d', due: '2026-11-01' }],
+  ['每月1号转账给房东', { text: '转账给房东', repeat: 'm1', due: '2026-11-01', group: '手机办' }],
+  ['每周打扫卫生', { text: '打扫卫生', repeat: '1w', due: '2026-11-07', group: '在家做' }],
+
+  // English.
+  ['buy diapers tomorrow', { text: 'buy diapers', due: '2026-11-01', group: '买东西' }],
+  ['pay the bill by Friday', { text: 'pay the bill', due: '2026-11-06', group: '手机办' }],
+  ['service the car within 2 weeks', { text: 'service the car', due: '2026-11-14', group: '出门办' }],
+  ['clean the fridge next week', { text: 'clean the fridge', due: '2026-11-08', group: '在家做' }],
+  ['submit claim today', { text: 'submit claim', due: '2026-10-31', group: '手机办' }],
+  ['pump the tyres every month', { text: 'pump the tyres', repeat: '1m', group: '出门办' }],
+
+  // No keyword.
+  ['问一下老师', { text: '问一下老师', group: '未分组', dated: false }]
+];
+
+var passed = 0, fails = [];
+function ok(name, got, want) {
+  var bad = Object.keys(want).filter(function (k) { return JSON.stringify(got[k]) !== JSON.stringify(want[k]); });
+  if (bad.length) fails.push(name + ': ' + bad.map(function (k) { return k + ' got ' + JSON.stringify(got[k]) + ', want ' + JSON.stringify(want[k]); }).join('; '));
+  else passed++;
+}
+cases.forEach(function (c) { ok(c[0], parseTodo(c[0], TODO), c[1]); });
+
+// nextRepeat and labels.
+ok('next 1m', { v: nextRepeat('1m', '2026-01-31') }, { v: '2026-02-28' });
+ok('next 2w', { v: nextRepeat('2w', TODO) }, { v: '2026-11-14' });
+ok('next w3 on a Wednesday', { v: nextRepeat('w3', '2026-11-04') }, { v: '2026-11-11' });
+ok('next m1 on the 1st', { v: nextRepeat('m1', '2026-11-01') }, { v: '2026-12-01' });
+ok('labels', { a: repeatLabel('1m'), b: repeatLabel('2w'), c: repeatLabel('w3'), d: repeatLabel('m5') }, { a: '每月', b: '每2周', c: '每周三', d: '每月5号' });
+
+// When AI is called.
+function ai(s) { return needsAi_(s, parseTodo(s, TODO)); }
+ok('short phrase skips AI', { v: ai('买尿布,两周内') }, { v: false });
+ok('long sentence uses AI', { v: ai('哦对了那个宝宝的维生素好像快吃完了,下下周之前吧,还有车也该保养了') }, { v: true });
+ok('several tasks use AI', { v: ai('买尿布还有买勺子') }, { v: true });
+ok('no group uses AI', { v: ai('问一下老师') }, { v: true });
+
+// AI replies.
+var base = parseTodo('两周内买尿布', TODO);
+ok('good reply', cleanAiTasks_('{"tasks":[{"text":"买维生素D","due":"2026-11-15","group":"买东西","repeat":""},{"text":"车保养","due":"2026-11-07","group":"出门办","repeat":"1m"}]}', base, TODO)[1], { text: '车保养', due: '2026-11-07', group: '出门办', repeat: '1m' });
+ok('bad json', { v: cleanAiTasks_('not json', base, TODO).length }, { v: 0 });
+ok('empty list', { v: cleanAiTasks_('{"tasks":[]}', base, TODO).length }, { v: 0 });
+ok('past date uses rules', cleanAiTasks_('{"tasks":[{"text":"x","due":"2020-01-01","group":"买东西","repeat":""}]}', base, TODO)[0], { due: base.due });
+ok('nonsense date uses rules', cleanAiTasks_('{"tasks":[{"text":"x","due":"soon","group":"买东西","repeat":""}]}', base, TODO)[0], { due: base.due });
+ok('bad group is guessed', cleanAiTasks_('{"tasks":[{"text":"买奶粉","due":"2026-11-07","group":"购物","repeat":""}]}', base, TODO)[0], { group: '买东西' });
+ok('bad repeat dropped', cleanAiTasks_('{"tasks":[{"text":"x","due":"2026-11-07","group":"买东西","repeat":"monthly"}]}', base, TODO)[0], { repeat: '' });
+ok('empty text dropped', { v: cleanAiTasks_('{"tasks":[{"text":" ","due":"2026-11-07","group":"买东西","repeat":""}]}', base, TODO).length }, { v: 0 });
+ok('at most 8 tasks', { v: cleanAiTasks_(JSON.stringify({ tasks: Array(12).fill({ text: 'x', due: '2026-11-07', group: '买东西', repeat: '' }) }), base, TODO).length }, { v: 8 });
+
+// Morning push.
+var t = function (text, due, status, doneAt) { return { text: text, due: due, status: status || 'open', doneAt: doneAt || '' }; };
+var msg = pushMessage_([t('买维生素D', '2026-10-29'), t('车保养', TODO), t('转账', TODO), t('打气', '2026-11-01'), t('以后', '2026-12-01'), t('旧', '2026-10-30', 'done', '2026-10-30T09:00:00')], TODO);
+ok('push title', msg, { title: '今天 2 件 · 过期 1 件' });
+ok('push body', msg, { body: '昨天完成 1 件 👏\n⚠️ 买维生素D（过期2天）\n车保养\n转账\n这周还有 1 件' });
+ok('nothing due sends nothing', { v: pushMessage_([t('以后', '2026-12-01')], TODO) }, { v: null });
+var many = [1, 2, 3, 4, 5, 6, 7].map(function (n) { return t('事' + n, TODO); });
+ok('push is capped', { v: pushMessage_(many, TODO).body.split('\n').length }, { v: 6 });
+
+document.title = fails.length ? 'FAIL' : 'PASS';
+document.getElementById('out').textContent = passed + ' passed, ' + fails.length + ' failed\n' + fails.join('\n');
+</script>

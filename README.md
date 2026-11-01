@@ -8,21 +8,27 @@ Main rule: **every piece must keep working and be redeployable without Claude.**
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Data | Google Sheets in my Drive, one tab per minor project | Editable by hand, exports to CSV, works on phone and Mac |
-| Backend | Google Apps Script web app bound to the sheet | Free, runs under my own Google account, small JSON API |
-| App | Static PWA (plain HTML/JS, no framework) on free hosting (GitHub Pages or Cloudflare Pages) | Installs on the phone home screen, easy for anyone to maintain |
+| Data | Google Sheets in my Drive. Projects that share data use tabs in one sheet; independent projects get their own sheet | Editable by hand, exports to CSV, works on phone and Mac |
+| Backend | Google Apps Script web app bound to each sheet | Free, runs under my own Google account, small JSON API |
+| App | Static PWA (plain HTML/JS, no framework) on GitHub Pages | Installs on the phone home screen, easy for anyone to maintain |
 | Reminders | Apps Script time trigger, push via ntfy or email | Works with every device off |
 | AI | Optional. Provider and API key are settings. Without a key the app uses manual entry and simple parsing | Not locked to one vendor |
-| Mac tools | Plain scripts in `scripts/` (for example e-statement analysis) | Run by hand or by any AI |
+| Mac tools | Plain scripts in the project's own `scripts/` folder (for example e-statement analysis) | Run by hand or by any AI |
 
 Each layer is built only when the project in progress needs it.
 
 ## Layout
 
-- `projects/<name>/README.md`: requirements, status and open questions for each minor project
-- `docs/`: the phone app (PWA). It is called `docs` because GitHub Pages publishes that folder. Use "Try with sample data" on the first screen to see it without a backend
-- `backend/apps-script/`: Apps Script code and the deploy guide
-- `scripts/`: Mac-side tools
+Each project keeps everything in `projects/<name>/`:
+
+- `README.md`: requirements, status and open questions
+- `app/`: the phone app (PWA). Use the sample data button on its first screen to see it without a backend
+- `backend/`: Apps Script code, tests and the setup guide (`SETUP.md`)
+- `scripts/`: Mac-side tools, if the project has any
+
+At the top level:
+
+- `.github/workflows/pages.yml`: publishes each app to GitHub Pages by copying its `app/` folder. It only copies files; there is no build step
 - `exports/`: CSV backups of the sheet (do not commit if the folder is ever made public)
 - `legacy/`: earlier prototypes kept for reference (`home-desk.html` was a claude.ai page and only runs there)
 
@@ -30,8 +36,9 @@ Each layer is built only when the project in progress needs it.
 
 | Project | Status |
 | --- | --- |
-| expenses | Gathering requirements |
-| todos, reminders, research, e-statements, baby shopping | Not started |
+| expenses | In use |
+| todo | Built, not yet deployed |
+| reminders, research, e-statements, baby shopping | Not started |
 
 ## Privacy
 

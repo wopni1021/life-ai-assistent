@@ -1,0 +1,61 @@
+/* Sample data for trying the app without a backend. Used only when the token is "demo". All tasks are made up. */
+(function () {
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function sample() {
+    var t = today();
+    function task(id, text, days, group, repeat, age) {
+      return { id: id, text: text, due: addDays_(t, days), group: group, repeat: repeat || '', status: 'open', raw: text, createdAt: addDays_(t, -(age || 0)) + 'T09:00:00', doneAt: '' };
+    }
+    var done = task('s6', '买婴儿湿巾', -1, '买东西', '', 2);
+    done.status = 'done';
+    done.doneAt = addDays_(t, -1) + 'T18:30:00';
+    return [
+      task('s1', '买维生素D', -2, '买东西', '', 12),
+      task('s2', '转账给房东', 0, '手机办'),
+      task('s3', '给车打气', 3, '出门办', '1m'),
+      task('s4', '报销保险', 5, '手机办', '', 1),
+      task('s5', '把车送去保养', 20, '出门办'),
+      done
+    ];
+  }
+  function load() { try { return JSON.parse(localStorage.getItem('td_mock')) || sample(); } catch (e) { return sample(); } }
+  function keep() { try { localStorage.setItem('td_mock', JSON.stringify(rows)); } catch (e) {} }
+  function reply(v) { return new Promise(function (r) { setTimeout(function () { r(JSON.parse(JSON.stringify(v))); }, 150); }); }
+  var rows = load();
+
+  window.MockApi = function (req) {
+    var a = req.action;
+    if (window.__failNext) { window.__failNext = false; return Promise.reject(new Error('no connection')); }
+    if (a === 'todoList') return reply({ todos: rows });
+    if (a === 'todoAdd') {
+      var p = parseTodo(req.text, today());
+      var rec = { id: req.id, text: p.text, due: p.due, group: p.group, repeat: p.repeat, status: 'open', raw: req.text, createdAt: today() + 'T12:00:00', doneAt: '' };
+      if (!rows.some(function (r) { return r.id === req.id; })) rows.push(rec);
+      keep();
+      return reply({ tasks: [rec], message: '已记下：' + rec.text });
+    }
+    if (a === 'todoUpdate') {
+      var t = rows.filter(function (r) { return r.id === req.id; })[0];
+      if (!t) return Promise.reject(new Error('not found'));
+      if (req.remove) rows = rows.filter(function (r) { return r.id !== req.id; });
+      else {
+        ['text', 'due', 'group', 'repeat'].forEach(function (k) { if (req[k] !== undefined) t[k] = req[k]; });
+        if (req.status === 'done') {
+          t.status = 'done';
+          t.doneAt = req.doneAt;
+          if (t.repeat && req.nextId) rows.push({ id: req.nextId, text: t.text, due: nextRepeat(t.repeat, today()), group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: today() + 'T12:00:00', doneAt: '' });
+        } else if (req.status === 'open') {
+          t.status = 'open';
+          t.doneAt = '';
+          rows = rows.filter(function (r) { return r.id !== req.removeId; });
+        }
+      }
+      keep();
+      return reply({ id: req.id });
+    }
+    return Promise.reject(new Error('unknown action'));
+  };
+})();

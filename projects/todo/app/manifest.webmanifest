@@ -1,0 +1,12 @@
+{
+  "name": "Life Todos",
+  "short_name": "待办",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F2F6F4",
+  "theme_color": "#0E7C5A",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

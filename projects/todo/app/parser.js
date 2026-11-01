@@ -1,0 +1,254 @@
+/*
+ * Turns one spoken sentence into a task, with no AI and no API key.
+ * Pure functions only. The phone app loads this file, and the same file is pasted into
+ * Apps Script as TodoParser, so there is one copy. Dates are 'yyyy-mm-dd' strings.
+ */
+
+var TODO_GROUPS = ['买东西', '出门办', '手机办', '在家做'];
+var TODO_NO_GROUP = '未分组';
+var TODO_DEFAULT_DAYS = 7;
+var TODO_LATER_DAYS = 30;
+
+/* ---------- dates ---------- */
+
+function dateMs_(s) { var p = s.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]); }
+function dateStr_(ms) { return new Date(ms).toISOString().slice(0, 10); }
+function addDays_(s, n) { return dateStr_(dateMs_(s) + n * 86400000); }
+function daysBetween_(from, to) { return Math.round((dateMs_(to) - dateMs_(from)) / 86400000); }
+/** Monday 1 to Sunday 7. */
+function weekday_(s) { return new Date(dateMs_(s)).getUTCDay() || 7; }
+function monthEnd_(s, plus) {
+  var p = s.split('-').map(Number);
+  return dateStr_(Date.UTC(p[0], p[1] - 1 + (plus || 0) + 1, 0));
+}
+function dayOfMonth_(s, plus, day) {
+  var p = s.split('-').map(Number), last = Number(monthEnd_(s, plus).slice(8));
+  return dateStr_(Date.UTC(p[0], p[1] - 1 + plus, Math.min(day, last)));
+}
+function addMonths_(s, n) { return dayOfMonth_(s, n, Number(s.slice(8))); }
+function weekOf_(today, weeksAhead, day) { return addDays_(today, 7 * weeksAhead + day - weekday_(today)); }
+/** The next time this weekday comes round. today counts when orToday is set. */
+function nextWeekday_(today, day, orToday) {
+  var gap = (day - weekday_(today) + 7) % 7;
+  return addDays_(today, gap === 0 && !orToday ? 7 : gap);
+}
+function nextDayOfMonth_(today, day, orToday) {
+  var d = dayOfMonth_(today, 0, day);
+  return d > today || (orToday && d === today) ? d : dayOfMonth_(today, 1, day);
+}
+function weekend_(today) { return weekday_(today) === 7 ? today : weekOf_(today, 0, 6); }
+
+/* ---------- numbers ---------- */
+
+var NUM_ = '[0-9]+|[零一二两三四五六七八九十]+';
+var CN_DIGITS_ = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+function toNum_(s) {
+  if (/^[0-9]+$/.test(s)) return Number(s);
+  var at = s.indexOf('十');
+  if (at < 0) return CN_DIGITS_[s];
+  return (at === 0 ? 1 : CN_DIGITS_[s.slice(0, at)]) * 10 + (s.slice(at + 1) ? CN_DIGITS_[s.slice(at + 1)] : 0);
+}
+var EN_NUMS_ = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+function enNum_(s) { return /^[0-9]+$/.test(s) ? Number(s) : EN_NUMS_[s]; }
+function cnDay_(s) { return { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 }[s] || Number(s); }
+
+var EN_DAYS_ = { mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6, sun: 7 };
+var EN_DAY_ = '(mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?|sun)(?:day)?';
+function enDay_(s) { return EN_DAYS_[s.slice(0, 3)] || EN_DAYS_[s]; }
+
+/* ---------- repeats ---------- */
+
+var WEEK_ = '(?:周|星期|礼拜)';
+var REPEAT_RULES_ = [
+  [new RegExp('每(?:个)?' + WEEK_ + '([一二三四五六日天1-7])'), function (m) { return 'w' + cnDay_(m[1]); }],
+  [new RegExp('每(?:个)?月(' + NUM_ + ')[号日]'), function (m) { return 'm' + toNum_(m[1]); }],
+  [new RegExp('每隔?(' + NUM_ + ')(?:个)?' + WEEK_), function (m) { return toNum_(m[1]) + 'w'; }],
+  [new RegExp('每隔?(' + NUM_ + ')个月'), function (m) { return toNum_(m[1]) + 'm'; }],
+  [new RegExp('每隔?(' + NUM_ + ')[天日]'), function (m) { return toNum_(m[1]) + 'd'; }],
+  [new RegExp('每(?:个)?' + WEEK_), function () { return '1w'; }],
+  [/每(?:个)?月/, function () { return '1m'; }],
+  [/每[天日]/, function () { return '1d'; }],
+  [/\b(?:every day|daily)\b/i, function () { return '1d'; }],
+  [new RegExp('\\bevery ' + EN_DAY_ + '\\b', 'i'), function (m) { return 'w' + enDay_(m[1].toLowerCase()); }],
+  [/\bevery ([0-9]+|two|three|four) weeks?\b/i, function (m) { return enNum_(m[1].toLowerCase()) + 'w'; }],
+  [/\bevery ([0-9]+|two|three|four|six) months?\b/i, function (m) { return enNum_(m[1].toLowerCase()) + 'm'; }],
+  [/\b(?:every week|weekly)\b/i, function () { return '1w'; }],
+  [/\b(?:every month|monthly)\b/i, function () { return '1m'; }]
+];
+
+/** When a repeating task comes back after it is done. */
+function nextRepeat(repeat, from) {
+  var m = /^(\d+)([dwm])$/.exec(repeat);
+  if (m) {
+    var n = Number(m[1]);
+    return m[2] === 'd' ? addDays_(from, n) : m[2] === 'w' ? addDays_(from, 7 * n) : addMonths_(from, n);
+  }
+  if (repeat.charAt(0) === 'w') return nextWeekday_(from, Number(repeat.slice(1)));
+  return nextDayOfMonth_(from, Number(repeat.slice(1)));
+}
+
+function repeatLabel(repeat) {
+  if (!repeat) return '';
+  var m = /^(\d+)([dwm])$/.exec(repeat);
+  if (m) {
+    var unit = { d: '天', w: '周', m: '月' }[m[2]];
+    return m[1] === '1' ? '每' + unit : '每' + m[1] + (m[2] === 'm' ? '个' : '') + unit;
+  }
+  if (repeat.charAt(0) === 'w') return '每周' + '一二三四五六日'.charAt(Number(repeat.slice(1)) - 1);
+  return '每月' + repeat.slice(1) + '号';
+}
+
+function isRepeat(s) { return /^(\d+[dwm]|w[1-7]|m([1-9]|[12]\d|3[01]))$/.test(String(s || '')); }
+
+/* ---------- date phrases ---------- */
+
+var LEAD_ = '(?:必须在|最好在|要在|得在|截止到?|大概|大约|差不多|最晚|最迟|在|到)?';
+var CLOCK_ = '(?:早上|上午|中午|下午|傍晚|晚上)?';
+var TAIL_ = '(?:之内|以内|之前|以前|之后|以后|内|前|后)?(?:吧|啊)?(?:要|得|需要)?(?:完成|做完|搞定|弄好|办好|处理好|处理掉)?';
+var ZH_END_ = '(?:之内|以内|之前|之后|以后|内|前|后|完成|做完|搞定|弄好|办好|左右|$|(?=[,,。.!!??;; ]))';
+function zh_(body) { return new RegExp(LEAD_ + '(?:' + body + ')' + CLOCK_ + TAIL_); }
+
+var DATE_RULES_ = [
+  [zh_('不太?(?:着)?急|不赶|有空|有时间|抽空|以后再说|慢慢来|什么时候都行'), function (m, t) { return addDays_(t, TODO_LATER_DAYS); }],
+  [zh_('今天|今日|今晚|今早|今儿|当天|现在|马上|立刻|立即|赶紧|赶快|尽快|尽早|越快越好|很急|着急|紧急'), function (m, t) { return t; }],
+  [zh_('明天|明日|明早|明晚|明儿'), function (m, t) { return addDays_(t, 1); }],
+  [zh_('大后天'), function (m, t) { return addDays_(t, 3); }],
+  [zh_('后天'), function (m, t) { return addDays_(t, 2); }],
+  [zh_('这两天|过两天'), function (m, t) { return addDays_(t, 2); }],
+  [zh_('这几天|过几天'), function (m, t) { return addDays_(t, 3); }],
+
+  [new RegExp(LEAD_ + '(' + NUM_ + ')个?[天日]' + ZH_END_ + TAIL_), function (m, t) { return addDays_(t, toNum_(m[1])); }],
+  [new RegExp(LEAD_ + '(' + NUM_ + ')个?' + WEEK_ + ZH_END_ + TAIL_), function (m, t) { return addDays_(t, 7 * toNum_(m[1])); }],
+  [new RegExp(LEAD_ + '(' + NUM_ + ')个月' + ZH_END_ + TAIL_), function (m, t) { return addMonths_(t, toNum_(m[1])); }],
+  [zh_('半个?月'), function (m, t) { return addDays_(t, 14); }],
+  [zh_('半年'), function (m, t) { return addMonths_(t, 6); }],
+
+  [zh_('下下' + WEEK_ + '([一二三四五六日天1-7])'), function (m, t) { return weekOf_(t, 2, cnDay_(m[1])); }],
+  [zh_('下下' + WEEK_), function (m, t) { return weekOf_(t, 2, 7); }],
+  [zh_('下个?' + WEEK_ + '([一二三四五六日天1-7])'), function (m, t) { return weekOf_(t, 1, cnDay_(m[1])); }],
+  [zh_('下个?周末'), function (m, t) { return weekOf_(t, 1, 6); }],
+  [zh_('下个?' + WEEK_), function (m, t) { return weekOf_(t, 1, 7); }],
+  [zh_('[这本]?个?周末'), function (m, t) { return weekend_(t); }],
+  [zh_('[这本]个?' + WEEK_ + '([一二三四五六日天1-7])'), function (m, t) { return nextWeekday_(t, cnDay_(m[1]), true); }],
+  [zh_(WEEK_ + '([一二三四五六日天1-7])'), function (m, t) { return nextWeekday_(t, cnDay_(m[1]), true); }],
+  [zh_('[这本]个?' + WEEK_), function (m, t) { return weekOf_(t, 0, 7); }],
+
+  [zh_('下个?月底'), function (m, t) { return monthEnd_(t, 1); }],
+  [new RegExp(LEAD_ + '下个?月(' + NUM_ + ')[号日]' + CLOCK_ + TAIL_), function (m, t) { return dayOfMonth_(t, 1, toNum_(m[1])); }],
+  [zh_('下个?月'), function (m, t) { return monthEnd_(t, 1); }],
+  [zh_('[这本]?个?月底|[这本]个?月'), function (m, t) { return monthEnd_(t, 0); }],
+  [new RegExp(LEAD_ + '(' + NUM_ + ')月(' + NUM_ + ')[号日]' + CLOCK_ + TAIL_), function (m, t) {
+    var mon = toNum_(m[1]), day = toNum_(m[2]);
+    if (mon < 1 || mon > 12 || day < 1 || day > 31) return null;
+    var d = t.slice(0, 4) + '-' + String(mon).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+    return d >= t ? d : (Number(t.slice(0, 4)) + 1) + d.slice(4);
+  }],
+  [new RegExp(LEAD_ + '(' + NUM_ + ')[号日](?!楼|电池|线|门|店|机|车|床|房|码)' + CLOCK_ + TAIL_), function (m, t) {
+    var day = toNum_(m[1]);
+    return day >= 1 && day <= 31 ? nextDayOfMonth_(t, day, true) : null;
+  }],
+  [/(?:^|[^0-9/])((?:1[0-2]|0?[1-9])\/(?:[12][0-9]|3[01]|0?[1-9]))(?![0-9/])/, function (m, t) {
+    var p = m[1].split('/').map(Number);
+    var d = t.slice(0, 4) + '-' + String(p[0]).padStart(2, '0') + '-' + String(p[1]).padStart(2, '0');
+    return d >= t ? d : (Number(t.slice(0, 4)) + 1) + d.slice(4);
+  }],
+
+  [/\b(?:no rush|whenever|someday)\b/i, function (m, t) { return addDays_(t, TODO_LATER_DAYS); }],
+  [/\b(?:by |before )?(?:today|tonight|asap|right now)\b/i, function (m, t) { return t; }],
+  [/\b(?:by |before |on )?(?:the )?day after tomorrow\b/i, function (m, t) { return addDays_(t, 2); }],
+  [/\b(?:by |before |on )?tomorrow\b/i, function (m, t) { return addDays_(t, 1); }],
+  [/\b(?:within|in) (?:the next )?([0-9]+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) days?\b/i, function (m, t) { return addDays_(t, enNum_(m[1].toLowerCase())); }],
+  [/\b(?:within|in) (?:the next )?([0-9]+|a|one|two|three|four|five|six) weeks?\b/i, function (m, t) { return addDays_(t, 7 * enNum_(m[1].toLowerCase())); }],
+  [/\b(?:within|in) (?:the next )?([0-9]+|a|one|two|three|four|five|six) months?\b/i, function (m, t) { return addMonths_(t, enNum_(m[1].toLowerCase())); }],
+  [/\b(?:by |before )?(?:the )?end of (?:the |this )?month\b/i, function (m, t) { return monthEnd_(t, 0); }],
+  [/\b(?:by |before )?next month\b/i, function (m, t) { return monthEnd_(t, 1); }],
+  [new RegExp('\\b(?:by |before |on )?next ' + EN_DAY_ + '\\b', 'i'), function (m, t) { return weekOf_(t, 1, enDay_(m[1].toLowerCase())); }],
+  [/\b(?:by |before )?next week\b/i, function (m, t) { return weekOf_(t, 1, 7); }],
+  [/\b(?:by |before )?(?:this |the )?weekend\b/i, function (m, t) { return weekend_(t); }],
+  [/\b(?:by |before )?(?:the end of )?this week\b/i, function (m, t) { return weekOf_(t, 0, 7); }],
+  [new RegExp('\\b(?:by |before |on |this )' + EN_DAY_ + '\\b', 'i'), function (m, t) { return nextWeekday_(t, enDay_(m[1].toLowerCase()), true); }]
+];
+
+/** The earliest phrase in the sentence wins; at the same spot, the longest. */
+function findDate_(text, today) {
+  var best = null;
+  DATE_RULES_.forEach(function (rule) {
+    var m = rule[0].exec(text);
+    if (!m || !m[0]) return;
+    var due = rule[1](m, today);
+    if (!due) return;
+    if (!best || m.index < best.index || (m.index === best.index && m[0].length > best.length)) {
+      best = { index: m.index, length: m[0].length, due: due };
+    }
+  });
+  return best;
+}
+
+/* ---------- groups ---------- */
+
+var GROUP_RULES_ = [
+  ['买东西', /买|购|下单|补货|囤|尿布|尿不湿|纸尿裤|奶粉|奶瓶|维生素|勺子|牙膏|纸巾|湿巾|\b(?:buy|order|get some)\b|diaper/i],
+  ['手机办', /转账|转钱|打钱|汇款|付款|缴费|交费|交钱|还款|还钱|报销|理赔|续费|退款|预约|挂号|订票|订酒店|订位|申请|claim|transfer|renew|\bpay\b|\bbook\b/i],
+  ['出门办', /车|保养|打气|轮胎|加油|年检|银行|医院|诊所|打针|疫苗|取快递|取件|寄|邮局|理发|剪头发|\b(?:car|tyres?|tires?|clinic|hospital|bank)\b/i],
+  ['在家做', /打扫|收拾|整理|扔垃圾|倒垃圾|做饭|换床单|清理|拖地|洗衣|洗碗|\b(?:clean|tidy|laundry)\b/i]
+];
+
+function guessGroup(text) {
+  for (var i = 0; i < GROUP_RULES_.length; i++) if (GROUP_RULES_[i][1].test(text)) return GROUP_RULES_[i][0];
+  return TODO_NO_GROUP;
+}
+
+/* ---------- the sentence ---------- */
+
+var FRONT_FILLER_ = /^(?:嗯+|呃+|啊+|哦+|唉+|那个|这个|对了|哦对了|还有|然后|就是|提醒我?一下|提醒我|帮我记一下|帮我记|记一下|记得|别忘了|别忘记|不要忘了|我要|我得|我需要|要|得|需要|remember to|remind me to)[\s,,。.、::]*/i;
+var BACK_FILLER_ = /[\s,,。.、::]*(?:完成|做完|搞定|弄好|办好|要|吧|啊|呀|哦|了吧)$/;
+
+function tidy_(s) {
+  s = s.replace(/\s+/g, ' ').replace(/ ?([,,。、!!??;;]) ?/g, '$1').replace(/([,,。、!!??;;]){2,}/g, '$1');
+  s = s.replace(/^[\s,,。.、!!??;;::]+|[\s,,。.、!!??;;::]+$/g, '');
+  var before;
+  do {
+    before = s;
+    s = s.replace(FRONT_FILLER_, '').replace(BACK_FILLER_, '');
+    s = s.replace(/^[\s,,。.、!!??;;::]+|[\s,,。.、!!??;;::]+$/g, '');
+  } while (s !== before);
+  return s;
+}
+
+function cut_(s, index, length) { return s.slice(0, index) + ' ' + s.slice(index + length); }
+
+/** iPhone dictation types full-width punctuation, and sometimes digits. The rules above work on the plain forms. */
+function halfWidth_(s) {
+  return s.replace(/[！-～]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/　/g, ' ');
+}
+/** A comma left between Chinese clauses goes back to the full-width one for display. */
+function fullComma_(s) { return s.replace(/([一-鿿]),(?=[一-鿿])/g, '$1，'); }
+
+/** Returns { text, due, dated, group, repeat }. dated is false when no date was said. */
+function parseTodo(raw, today) {
+  var text = halfWidth_(String(raw || '')).trim(), repeat = '', firstDue = null;
+  for (var i = 0; i < REPEAT_RULES_.length; i++) {
+    var m = REPEAT_RULES_[i][0].exec(text);
+    if (m) {
+      repeat = REPEAT_RULES_[i][1](m);
+      text = cut_(text, m.index, m[0].length);
+      break;
+    }
+  }
+  var found = findDate_(text, today);
+  if (found) text = cut_(text, found.index, found.length);
+  if (repeat) {
+    var fixedDay = /^[wm]/.test(repeat);
+    firstDue = fixedDay ? (repeat.charAt(0) === 'w' ? nextWeekday_(today, Number(repeat.slice(1)), true) : nextDayOfMonth_(today, Number(repeat.slice(1)), true)) : nextRepeat(repeat, today);
+    var byDefault = addDays_(today, TODO_DEFAULT_DAYS);
+    if (!fixedDay && firstDue > byDefault) firstDue = byDefault;
+  }
+  var clean = fullComma_(tidy_(text)) || String(raw || '').trim();
+  return {
+    text: clean.slice(0, 200),
+    due: found ? found.due : firstDue || addDays_(today, TODO_DEFAULT_DAYS),
+    dated: !!(found || repeat),
+    group: guessGroup(clean),
+    repeat: repeat
+  };
+}

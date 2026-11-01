@@ -1,0 +1,124 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Backend tests</title>
+<pre id="out">running...</pre>
+<script>
+// Runs the real backend files against a stand-in for Google's services, so API logic is checked without deploying.
+var assert = function (v, msg) { if (!v) throw new Error(msg || 'assert failed'); };
+assert.strictEqual = function (a, b, msg) { if (a !== b) throw new Error((msg || 'not equal') + ': ' + JSON.stringify(a) + ' vs ' + JSON.stringify(b)); };
+assert.deepStrictEqual = function (a, b) { assert.strictEqual(JSON.stringify(a), JSON.stringify(b)); };
+var grid = [['id','text','due','group','repeat','status','raw','createdAt','doneAt']];
+var props = { API_TOKEN: 'secret', AI_KEY: 'k' };
+var lockHeld = 0, fetches = [], aiReply = null;
+var sheet = {
+  getLastRow: () => grid.length,
+  getMaxRows: () => 1000,
+  appendRow: r => { grid.push(r.slice()); },
+  deleteRow: n => { grid.splice(n - 1, 1); },
+  getRange: (r, c, nr, nc) => ({
+    getValues: () => grid.slice(r - 1, r - 1 + nr).map(x => x.slice(c - 1, c - 1 + nc)),
+    setValues: v => { v.forEach((row, i) => { grid[r - 1 + i] = row.slice(); }); },
+    setNumberFormat() { return this; }, setFontWeight() { return this; }
+  })
+};
+window.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: () => sheet }), getUi: () => ({ alert() {} }) };
+  window.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k] || null, setProperty: (k, v) => { props[k] = v; } }) };
+  window.CacheService = { getScriptCache: () => ({ get: () => null, put() {} }) };
+  window.LockService = { getScriptLock: () => ({ waitLock() { lockHeld++; }, releaseLock() { lockHeld--; } }) };
+  window.Utilities = { getUuid: () => 'u', formatDate: (d, tz, f) => { const s = new Date(d.getTime() + 8 * 3600e3).toISOString(); return f === 'yyyy-MM-dd' ? s.slice(0, 10) : s.slice(0, 19); } };
+  window.ContentService = { MimeType: { JSON: 'j', TEXT: 't' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) };
+  window.ScriptApp = {};
+  window.UrlFetchApp = { fetch: (url, o) => { assert.strictEqual(lockHeld, 0, 'AI call must not hold the lock'); fetches.push({ url, o }); return aiReply(); } };
+</script>
+<!-- Ai.gs first on purpose: Apps Script does not promise the parser loads before it. -->
+<script src="../Ai.gs"></script>
+<script src="../Code.gs"></script>
+<script src="../Push.gs"></script>
+<script src="../../app/parser.js"></script>
+<script>
+try {
+const call = body => JSON.parse(doPost({ postData: { contents: JSON.stringify(Object.assign({ token: 'secret' }, body)) } }).text);
+const reply = (o, code) => ({ getResponseCode: () => code || 200, getContentText: () => JSON.stringify(o) });
+const claudeSays = tasks => () => reply({ stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify({ tasks }) }] });
+const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+const row = id => grid.find(r => r[0] === id);
+
+// Wrong token.
+assert.strictEqual(JSON.parse(doPost({ postData: { contents: '{"token":"no","action":"todoList"}' } }).text).error, 'unauthorized');
+
+// Short phrase: no AI call.
+aiReply = () => { throw new Error('should not be called'); };
+let r = call({ action: 'todoAdd', id: 'a', text: '买尿布,两周内' });
+assert(r.ok, r.error); assert.strictEqual(fetches.length, 0); assert.strictEqual(r.data.tasks[0].text, '买尿布'); assert.strictEqual(grid.length, 2);
+
+
+// Retrying the same id does not duplicate.
+call({ action: 'todoAdd', id: 'a', text: '买尿布,两周内' }); assert.strictEqual(grid.length, 2);
+
+// Shortcut: no id.
+r = call({ action: 'todoAdd', text: '明天转账' }); assert(r.ok); assert.strictEqual(grid.length, 3);
+
+// Long sentence: AI splits it, and the request has the right shape.
+aiReply = claudeSays([{ text: '买维生素D', due: '2030-01-05', group: '买东西', repeat: '' }, { text: '车保养', due: '2030-01-06', group: '出门办', repeat: '1m' }]);
+r = call({ action: 'todoAdd', id: 'b', text: '哦对了那个宝宝的维生素好像快吃完了,下下周之前吧,还有车也该保养了' });
+assert(r.ok, r.error); assert.strictEqual(r.data.tasks.length, 2); 
+assert(row('b') && row('b-2')); assert.strictEqual(row('b-2')[4], '1m');
+const sent = fetches[0]; const body = JSON.parse(sent.o.payload);
+assert.strictEqual(sent.url, 'https://api.anthropic.com/v1/messages');
+assert.strictEqual(sent.o.headers['anthropic-version'], '2026-10-21'); assert.strictEqual(sent.o.headers['anthropic-beta'], 'server-side-fallback-2026-07-01');
+assert.strictEqual(body.fallbacks, 'default'); assert.strictEqual(body.model, 'claude-opus-5-5');
+assert.deepStrictEqual(body.output_config.format.schema.properties.tasks.items.properties.group.enum, ['买东西', '出门办', '手机办', '在家做', '未分组']);
+
+// AI failures keep the rules' task: 500, refusal, garbage, network error, no key.
+const n0 = grid.length;
+[() => reply({}, 500), () => reply({ stop_reason: 'refusal', content: [] }), claudeSays('x'), () => { throw new Error('offline'); }].forEach((f, i) => {
+  aiReply = f; r = call({ action: 'todoAdd', id: 'f' + i, text: '那个什么问一下老师关于下周活动的事情吧还有别的' });
+  assert(r.ok, r.error); assert.strictEqual(r.data.tasks.length, 1); assert(row('f' + i));
+});
+assert.strictEqual(grid.length, n0 + 4);
+delete props.AI_KEY; aiReply = () => { throw new Error('no key: should not call'); };
+r = call({ action: 'todoAdd', id: 'nokey', text: '问一下老师' }); assert(r.ok); props.AI_KEY = 'k';
+
+// Haiku must not send fallbacks.
+props.AI_MODEL = 'claude-haiku-5-5'; fetches = []; aiReply = claudeSays([{ text: 'x', due: '2030-01-05', group: '买东西', repeat: '' }]);
+call({ action: 'todoAdd', id: 'h', text: '问一下老师' });
+assert.strictEqual(JSON.parse(fetches[0].o.payload).fallbacks, undefined); assert.strictEqual(fetches[0].o.headers['anthropic-beta'], undefined); delete props.AI_MODEL;
+
+// Edit, done with repeat, undo.
+r = call({ action: 'todoUpdate', id: 'b-2', text: '车大保养', due: '2030-02-01', group: '出门办' }); assert(r.ok, r.error); assert.strictEqual(row('b-2')[1], '车大保养');
+r = call({ action: 'todoUpdate', id: 'b-2', status: 'done', doneAt: today + 'T10:00:00', nextId: 'n1' }); assert(r.ok, r.error);
+assert.strictEqual(row('b-2')[5], 'done'); assert.strictEqual(row('n1')[5], 'open'); assert.strictEqual(row('n1')[4], '1m');
+call({ action: 'todoUpdate', id: 'b-2', status: 'done', nextId: 'n2' }); assert(!row('n2'), 'done twice makes one copy');
+r = call({ action: 'todoUpdate', id: 'b-2', status: 'open', removeId: 'n1' }); assert(r.ok, r.error);
+assert(!row('n1')); assert.strictEqual(row('b-2')[5], 'open'); assert.strictEqual(row('b-2')[8], '');
+
+// A row above the copy being deleted stays intact: reopen when copy sits before it.
+grid.splice(1, 0, ['c0', 'x', '2030-01-01', '买东西', '', 'open', 'x', '', '']);
+call({ action: 'todoUpdate', id: 'b-2', status: 'done', doneAt: today + 'T10:00:00', nextId: 'c9' });
+const before = grid.length; call({ action: 'todoUpdate', id: 'b-2', status: 'open', removeId: 'c0' });
+assert.strictEqual(grid.length, before - 1); assert.strictEqual(row('b-2')[5], 'open');
+
+// Bad input.
+assert(!call({ action: 'todoUpdate', id: 'b', due: 'soon' }).ok);
+assert(!call({ action: 'todoUpdate', id: 'b', group: 'x' }).ok);
+assert(!call({ action: 'todoUpdate', id: 'b', repeat: 'x' }).ok);
+assert(!call({ action: 'todoUpdate', id: 'ghost', text: 'x' }).ok);
+assert(!call({ action: 'todoAdd', text: '  ' }).ok);
+
+// Delete, and the list.
+assert(call({ action: 'todoUpdate', id: 'a', remove: true }).ok); assert(!row('a'));
+r = call({ action: 'todoList' }); assert(r.ok, r.error); assert(r.data.todos.every(t => typeof t.due === 'string'));
+
+// Dates that Sheets turned into Date cells still read back as text.
+grid[1][2] = new Date('2030-03-04T00:00:00+08:00');
+assert.strictEqual(call({ action: 'todoList' }).data.todos[0].due, '2030-03-04');
+assert.strictEqual(lockHeld, 0);
+
+
+  document.title = 'PASS';
+  document.getElementById('out').textContent = 'all backend checks passed';
+} catch (e) {
+  document.title = 'FAIL';
+  document.getElementById('out').textContent = 'FAILED: ' + e.message + '\n' + e.stack;
+}
+</script>
