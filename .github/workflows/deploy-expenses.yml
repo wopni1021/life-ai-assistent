@@ -1,0 +1,31 @@
+# Pushing a change to the Expenses backend tests and deploys it.
+name: Deploy Expenses backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'projects/expenses/backend/**'
+      - 'projects/expenses/app/vouchers.js'
+      - '.github/workflows/deploy-expenses.yml'
+      - '.github/workflows/deploy-apps-script.yml'
+      - '.github/scripts/run-html-tests.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-expenses
+  cancel-in-progress: false
+
+jobs:
+  expenses:
+    uses: ./.github/workflows/deploy-apps-script.yml
+    with:
+      folder: projects/expenses/backend
+      tests: projects/expenses/backend/tests/run.html
+    secrets:
+      clasprc: ${{ secrets.CLASPRC_JSON }}
+      script_id: ${{ secrets.EXPENSES_SCRIPT_ID }}
+      deployment_id: ${{ secrets.EXPENSES_DEPLOYMENT_ID }}

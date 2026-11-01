@@ -1,0 +1,33 @@
+# Pushing a change to the Todo backend tests and deploys it.
+# parser.js lives with the app and also runs in Apps Script, so it is copied in as TodoParser.
+name: Deploy Todo backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'projects/todo/backend/**'
+      - 'projects/todo/app/parser.js'
+      - '.github/workflows/deploy-todo.yml'
+      - '.github/workflows/deploy-apps-script.yml'
+      - '.github/scripts/run-html-tests.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-todo
+  cancel-in-progress: false
+
+jobs:
+  todo:
+    uses: ./.github/workflows/deploy-apps-script.yml
+    with:
+      folder: projects/todo/backend
+      tests: projects/todo/backend/tests/run.html projects/todo/backend/tests/backend.html
+      prepare: cp ../app/parser.js TodoParser.gs
+    secrets:
+      clasprc: ${{ secrets.CLASPRC_JSON }}
+      script_id: ${{ secrets.TODO_SCRIPT_ID }}
+      deployment_id: ${{ secrets.TODO_DEPLOYMENT_ID }}

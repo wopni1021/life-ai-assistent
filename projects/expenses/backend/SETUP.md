@@ -43,7 +43,7 @@ In the Accounts tab, add a row for cash if you want to track it (`id` cash, `nam
 The app lives in `projects/expenses/app/`. A GitHub Actions workflow (`.github/workflows/pages.yml`) publishes it on every push to `main`. In the GitHub repo, open **Settings > Pages** and set Source to "GitHub Actions" (do this before the first push of the workflow). The address is `https://wopni1021.github.io/life-ai-assistent/`. Open it on the iPhone in Safari, enter the web app URL and token once, then Share > Add to Home Screen.
 
 ## Automatic deploys
-Pushing a change under `projects/expenses/backend/` to `main` runs the tests, uploads the code and updates the web app at the same address (`.github/workflows/deploy-backend.yml`). A failed test stops the deploy. Check runs in the repo's **Actions** tab.
+Pushing a change under `projects/expenses/backend/` to `main` runs the tests, uploads the code and updates the web app at the same address (`.github/workflows/deploy-expenses.yml`). A failed test stops the deploy. Check runs in the repo's **Actions** tab.
 
 - Do not edit code in the Apps Script website. The next deploy overwrites it. Run functions there as before.
 - It needs three repo secrets: `CLASPRC_JSON` (the contents of `~/.clasprc.json` after `clasp login`), `EXPENSES_SCRIPT_ID` (Project Settings) and `EXPENSES_DEPLOYMENT_ID` (Deploy > Manage deployments).

@@ -29,6 +29,7 @@ Each project keeps everything in `projects/<name>/`:
 At the top level:
 
 - `.github/workflows/pages.yml`: publishes each app to GitHub Pages by copying its `app/` folder. It only copies files; there is no build step
+- `.github/workflows/deploy-*.yml`: test each backend and update its live web app when it changes on `main`. `.github/scripts/` runs the HTML test pages under Node
 - `exports/`: CSV backups of the sheet (do not commit if the folder is ever made public)
 - `legacy/`: earlier prototypes kept for reference (`home-desk.html` was a claude.ai page and only runs there)
 

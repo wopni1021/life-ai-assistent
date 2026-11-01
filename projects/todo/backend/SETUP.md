@@ -29,6 +29,13 @@ The addresses:
 
 After changing any code later: **Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy**. The URL stays the same.
 
+After the secrets below are in, pushing to `main` deploys for you, so the pasting and the "New version" step above are only for doing it by hand.
+
+### Automatic deploys
+Pushing a change under `projects/todo/backend/`, or to `app/parser.js`, runs the tests, uploads the code and updates the web app at the same address (`.github/workflows/deploy-todo.yml`). It reuses the `CLASPRC_JSON` secret from Expenses and needs two more repo secrets: `TODO_SCRIPT_ID` (Project Settings) and `TODO_DEPLOYMENT_ID` (Deploy > Manage deployments).
+
+For a new project, add `TODO_SCRIPT_ID` first and run **Deploy Todo backend** from the repo's Actions tab: the code is uploaded with no pasting. Then run `setup` and `makeToken` in the editor, make the first web app deployment by hand, and add `TODO_DEPLOYMENT_ID`. Do not edit code in the Apps Script website, because the next deploy overwrites it.
+
 ## 3. Add the icon to the iPhone
 1. In Safari, open `https://wopni1021.github.io/life-ai-assistent/todo/`.
 2. Share > Add to Home Screen. The icon is called 待办.

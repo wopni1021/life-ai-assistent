@@ -1,0 +1,74 @@
+# Shared deploy for one Apps Script project: tests first, then upload, then update the live web app at the same address.
+# Each tool has a small workflow that calls this one (deploy-expenses.yml, deploy-todo.yml).
+# With no deployment id yet, the code is uploaded and the web app step is skipped.
+name: Deploy Apps Script (shared)
+
+on:
+  workflow_call:
+    inputs:
+      folder:
+        description: The tool's backend folder
+        type: string
+        required: true
+      tests:
+        description: Test pages, relative to the repo root
+        type: string
+        required: true
+      prepare:
+        description: Optional command run in the folder before uploading
+        type: string
+        default: ''
+    secrets:
+      clasprc:
+        required: true
+      script_id:
+        required: true
+      deployment_id:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: node .github/scripts/run-html-tests.js ${{ inputs.tests }}
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.folder }}
+    env:
+      CLASPRC_JSON: ${{ secrets.clasprc }}
+      SCRIPT_ID: ${{ secrets.script_id }}
+      DEPLOYMENT_ID: ${{ secrets.deployment_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm install -g @google/clasp@3.4.1
+      - name: Write the sign-in and project files
+        run: |
+          umask 077
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > .clasp.json
+      - name: Prepare
+        if: ${{ inputs.prepare != '' }}
+        run: ${{ inputs.prepare }}
+      - name: Upload the code
+        run: clasp push --force
+      - name: Update the live web app
+        run: |
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "No deployment id yet, so only the code was uploaded."
+            exit 0
+          fi
+          clasp update-deployment "$DEPLOYMENT_ID" --description "$GITHUB_SHA"
