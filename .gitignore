@@ -4,6 +4,9 @@ exports/
 *.pdf
 .env
 *.key
+.clasp.json
+.clasprc.json
+node_modules/
 
 # Generated test page (built from Parsers.gs + tests/run.html)
 projects/expenses/backend/tests/run-inline.html

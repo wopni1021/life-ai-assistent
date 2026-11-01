@@ -85,6 +85,7 @@ None. Starting fresh; opening balances entered once per account.
 - Which categories do you want?
 
 ## Decisions
+- Pushing backend changes to `main` tests and deploys them through GitHub Actions (see `backend/SETUP.md`).
 - Banks: OCBC, DBS, UOB. Currency: SGD.
 - Notification emails show only amount and merchant, not balance. Balances are opening balance plus logged transactions, with a manual "set actual balance" correction.
 - Fetch alerts when the app opens or on pull to refresh; no timer.
