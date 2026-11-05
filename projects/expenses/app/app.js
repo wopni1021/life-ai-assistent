@@ -270,9 +270,14 @@
     if (s.banksSeen.indexOf('OCBC') < 0) {
       out.push(h('div', { class: 'notice info' }, 'OCBC is not connected yet, so it is not in these totals.'));
     }
-    var accts = h('div', { class: 'card list' });
-    b.accounts.forEach(function (a) { accts.append(accountRow(a)); });
-    out.push(h('div', null, h('div', { class: 'section-head' }, h('h2', null, 'Accounts')), h('div', { style: 'height:8px' }), accts));
+    function accountGroup(title, total, accounts) {
+      if (!accounts.length) return;
+      out.push(h('div', null, h('div', { class: 'section-head' }, h('h2', null, title), total),
+        h('div', { style: 'height:8px' }), h('div', { class: 'card list' }, accounts.map(accountRow))));
+    }
+    var cards = b.accounts.filter(function (a) { return a.type === 'card'; });
+    accountGroup('Bank accounts', h('span', { class: 'num' }, fmt(b.totalMoney)), banks);
+    accountGroup('Credit cards', h('span', { class: 'num owed' }, fmt(b.cardOwed) + ' owed'), cards);
 
     var byId = {};
     s.rows.forEach(function (r) { byId[r.id] = r; });
@@ -298,12 +303,19 @@
     out.push(h('p', { class: 'small muted' }, 'Last bank alert logged: ' + ago(s.lastAlertAt)));
     show(h('div', { class: 'stack' }, out));
   }
+  /** Account choices for a select, in two groups like Home. */
+  function accountOptions(accounts, exclude) {
+    return [['Bank accounts', false], ['Credit cards', true]].map(function (g) {
+      var list = accounts.filter(function (a) { return a.id !== exclude && (a.type === 'card') === g[1]; });
+      return list.length ? h('optgroup', { label: g[0] }, list.map(function (a) { return h('option', { value: a.id }, a.name); })) : null;
+    });
+  }
   function accountRow(a) {
     var isCard = a.type === 'card';
     return h('button', { class: 'acct', onclick: function () {
       state.account = a.id; state.query = ''; render(); window.scrollTo(0, 0);
     } },
-      h('div', null, h('div', { class: 'name' }, a.name), h('div', { class: 'small muted' }, isCard ? 'Credit card' : a.bank + ' account')),
+      h('div', null, h('div', { class: 'name' }, a.name), h('div', { class: 'small muted' }, a.bank)),
       h('div', { class: 'acct-right' },
         isCard ? h('div', { class: 'amt owed num' }, fmt(-a.balance) + ' owed') : h('div', { class: 'amt num' }, fmt(a.balance)),
         h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')));
@@ -332,7 +344,7 @@
     var tagInput = h('input', { type: 'text', id: 'ed-tag', value: row.tag || '', placeholder: 'e.g. supermarket', autocomplete: 'off' });
     var amountInput = (row.amount === '' || row.amount === null) ? h('input', { type: 'text', id: 'ed-amount', inputmode: 'decimal', placeholder: 'Amount in SGD' }) : null;
     var acctOptions = function (exclude) {
-      return ctx.accounts.filter(function (a) { return a.id !== exclude; }).map(function (a) { return h('option', { value: a.id }, a.name); });
+      return accountOptions(ctx.accounts, exclude);
     };
     var acctSelect = row.account ? null : h('select', { id: 'ed-account' }, h('option', { value: '' }, 'Choose account'), acctOptions());
     var canTransfer = row.direction === 'out' || row.direction === 'transfer' || row.direction === 'card_payment' || row.direction === 'in' || row.direction === 'transfer_in';
@@ -649,7 +661,7 @@
     var merchant = h('input', { type: 'text', id: 'add-merchant', placeholder: 'e.g. Wet market', autocomplete: 'off' });
     var tag = h('input', { type: 'text', id: 'add-tag', placeholder: 'e.g. fish', autocomplete: 'off' });
     var date = h('input', { type: 'date', id: 'add-date', value: state.nextAdd ? state.nextAdd.date : todayStr() });
-    var acct = h('select', { id: 'add-account' }, d.accounts.map(function (a) { return h('option', { value: a.id }, a.name); }));
+    var acct = h('select', { id: 'add-account' }, accountOptions(d.accounts));
     if (state.nextAdd) acct.value = state.nextAdd.account;
     state.nextAdd = null;
     var chipBox = h('div', { class: 'chips' });

@@ -3,7 +3,9 @@
   var accounts = [
     { id: 'dbs-savings', name: 'DBS Savings', type: 'bank', bank: 'DBS', balance: 12480.55 },
     { id: 'uob-account', name: 'UOB Account', type: 'bank', bank: 'UOB', balance: 3120.1 },
-    { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', balance: -412.36, sinceLastPayment: 412.36 }
+    { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', balance: -412.36, sinceLastPayment: 412.36 },
+    { id: 'ocbc-360', name: 'OCBC 360', type: 'bank', bank: 'OCBC', balance: 8200 },
+    { id: 'ocbc-card', name: 'OCBC Card', type: 'card', bank: 'OCBC', balance: -88.4, sinceLastPayment: 88.4 }
   ];
   var tx = [
     { id: 't1', datetime: '2026-10-27T09:14:00', direction: 'out', amount: 44.82, account: 'uob-card', merchantRaw: 'SHENG SIONG SUPERMARKET -', merchant: 'Sheng Siong', category: 'Groceries', tag: 'supermarket', bank: 'UOB', status: 'ok' },
