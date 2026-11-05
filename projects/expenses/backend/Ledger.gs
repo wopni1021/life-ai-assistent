@@ -98,6 +98,11 @@ function pairTransfers_(rows) {
   return pairs;
 }
 
+/** A hand-added entry is money out, money in, or a refund such as a rebate. Anything else counts as money out. */
+function manualDirection_(req) {
+  return req.direction === 'in' || req.direction === 'refund' ? req.direction : 'out';
+}
+
 function monthOf_(r) { return String(r.datetime || '').slice(0, 7); }
 
 /** Spending in one month ('YYYY-MM'): purchases minus refunds. Transfers, card payments and adjustments are not spending. */

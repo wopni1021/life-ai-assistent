@@ -255,13 +255,13 @@ function addRule_(pattern, name, category, tag) {
 function addManual_(req) {
   var amt = Number(req.amount);
   if (!isFinite(amt) || amt <= 0) throw new Error('enter an amount above 0');
-  var direction = req.direction === 'in' ? 'in' : 'out';
+  var direction = manualDirection_(req);
   var when = /^\d{4}-\d{2}-\d{2}$/.test(req.date || '') ? new Date(req.date + 'T12:00:00+08:00') : new Date();
   var id = 'm-' + Date.now();
   var rec = {
     id: id, datetime: when, direction: direction, amount: Math.round(amt * 100) / 100,
     account: text_(req.account, 40), toAccount: '', merchantRaw: text_(req.merchant, 80), merchant: text_(req.merchant, 80),
-    category: text_(req.category, 40) || (direction === 'in' ? 'Income' : ''), tag: text_(req.tag, 40), note: text_(req.note, 200),
+    category: text_(req.category, 40) || (direction === 'in' ? 'Income' : direction === 'refund' ? 'Rebate' : 'Other'), tag: text_(req.tag, 40), note: text_(req.note, 200),
     bank: 'manual', channel: 'manual', ref: '', status: req.account ? 'ok' : 'review', createdAt: new Date()
   };
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Transactions');

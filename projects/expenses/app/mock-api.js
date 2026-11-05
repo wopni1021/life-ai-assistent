@@ -100,7 +100,7 @@
     if (a === 'addManual') {
       var id = 'm-' + Date.now();
       tx.unshift({ id: id, datetime: (req.date || '2026-10-27') + 'T12:00:00', direction: req.direction || 'out', amount: Number(req.amount), account: req.account, merchantRaw: req.merchant, merchant: req.merchant, category: req.category, tag: req.tag || '', bank: 'manual', status: 'ok' });
-      accounts.forEach(function (x) { if (x.id === req.account) x.balance = round(x.balance + (req.direction === 'in' ? 1 : -1) * Number(req.amount)); });
+      accounts.forEach(function (x) { if (x.id === req.account) x.balance = round(x.balance + (req.direction === 'out' ? -1 : 1) * Number(req.amount)); });
       return done({ id: id });
     }
     if (a === 'setBalance') {

@@ -194,6 +194,16 @@ cases.forEach(function (c) {
   eq('month tags', m.byTag, [{ name: 'hawker', total: 20 }]);
   eq('review count', m.reviewCount, 1);
   eq('other month excluded', monthSummary_(rows, '2026-09').total, 99);
+  eq('hand-added directions', ['refund', 'in', 'out', 'transfer', undefined].map(function (d) { return manualDirection_({ direction: d }); }), ['refund', 'in', 'out', 'out', 'out']);
+  var rebates = rows.concat([
+    { datetime: '2026-10-20T10:00:00', direction: 'refund', amount: 5, account: 'card', category: 'Rebate', status: 'ok' },
+    { datetime: '2026-10-21T10:00:00', direction: 'refund', amount: 2, account: 'dbs', category: 'Rebate', status: 'ok' }
+  ]);
+  var rb = balances_(accts, rebates), rbById = {};
+  rb.accounts.forEach(function (a) { rbById[a.id] = a; });
+  eq('rebate on a card lowers what is owed', rb.cardOwed, 25);
+  eq('rebate into a bank account raises its balance', rbById.dbs.balance, 3690.66);
+  eq('rebates lower the month total', monthSummary_(rebates, '2026-10').total, 48);
   eq('delta: card purchase on the card', deltaFor_(rows[0], 'card'), -20);
   eq('delta: refund on the card', deltaFor_(rows[2], 'card'), 5);
   eq('delta: card payment, bank side', deltaFor_(rows[3], 'uob'), -25);

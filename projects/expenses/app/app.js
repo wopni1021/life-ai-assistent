@@ -654,37 +654,70 @@
   }
 
   /* ---------- add ---------- */
+  /**
+   * Add screen. Opens on Received, because spending mostly arrives from bank emails.
+   * A rebate is saved as a refund: it lowers the month's spending, and on a card it lowers what is owed.
+   */
+  var RECEIVED = {
+    rebate: { label: 'Rebate', direction: 'refund', category: 'Rebate', tag: '', name: 'Rebate' },
+    husband: { label: 'From husband', direction: 'in', category: 'Income', tag: 'husband', name: 'From husband' },
+    other: { label: 'Other', direction: 'in', category: 'Income', tag: '', name: 'Money in' }
+  };
   function renderAdd() {
     var d = { accounts: db.balances.accounts, categories: db.categories };
-    var selected = '', kind = 'out';
-    var amount = h('input', { type: 'text', id: 'add-amount', inputmode: 'decimal', placeholder: '0.00', autocomplete: 'off' });
-    var merchant = h('input', { type: 'text', id: 'add-merchant', placeholder: 'e.g. Wet market', autocomplete: 'off' });
-    var tag = h('input', { type: 'text', id: 'add-tag', placeholder: 'e.g. fish', autocomplete: 'off' });
-    var date = h('input', { type: 'date', id: 'add-date', value: state.nextAdd ? state.nextAdd.date : todayStr() });
-    var acct = h('select', { id: 'add-account' }, accountOptions(d.accounts));
-    if (state.nextAdd) acct.value = state.nextAdd.account;
+    var next = state.nextAdd || {};
     state.nextAdd = null;
-    var chipBox = h('div', { class: 'chips' });
-    var kindBox = h('div', { class: 'chips' });
-    function drawKind() {
+    var kind = next.kind || 'in', choice = next.choice || 'rebate', selected = '';
+    var amount = h('input', { type: 'text', id: 'add-amount', inputmode: 'decimal', placeholder: '0.00', autocomplete: 'off' });
+    var merchant = h('input', { type: 'text', id: 'add-merchant', autocomplete: 'off' });
+    var tag = h('input', { type: 'text', id: 'add-tag', placeholder: 'e.g. fish', autocomplete: 'off' });
+    var date = h('input', { type: 'date', id: 'add-date', value: next.date || todayStr() });
+    var acct = h('select', { id: 'add-account' }, accountOptions(d.accounts));
+    var acctLabel = h('span'), noteLabel = h('span');
+    var kindBox = h('div', { class: 'chips' }), choiceBox = h('div', { class: 'chips' }), chipBox = h('div', { class: 'chips' });
+    var more = h('details', { class: 'vfold' }, h('summary', null, 'More: category and keyword'),
+      h('div', { class: 'stack' }, chipBox, h('label', { class: 'field' }, 'Keyword', tag)));
+
+    function rememberKey() { return 'le_add_acct_' + (kind === 'out' ? 'out' : choice); }
+    function pickAccount() {
+      var saved = next.account || store.get(rememberKey());
+      next.account = null;
+      if (saved && d.accounts.some(function (a) { return a.id === saved; })) acct.value = saved;
+    }
+    function chip(label, on, click) {
+      return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(on), onclick: click }, label);
+    }
+    function draw() {
       kindBox.replaceChildren(
-        h('button', { type: 'button', class: 'chip', 'aria-pressed': String(kind === 'out'), onclick: function () { kind = 'out'; drawKind(); } }, 'Spent'),
-        h('button', { type: 'button', class: 'chip', 'aria-pressed': String(kind === 'in'), onclick: function () { kind = 'in'; drawKind(); } }, 'Received'));
+        chip('Received', kind === 'in', function () { kind = 'in'; draw(); pickAccount(); }),
+        chip('Spent', kind === 'out', function () { kind = 'out'; draw(); pickAccount(); }));
+      choiceBox.replaceChildren.apply(choiceBox, Object.keys(RECEIVED).map(function (k) {
+        return chip(RECEIVED[k].label, choice === k, function () { choice = k; draw(); pickAccount(); });
+      }));
+      choiceBox.hidden = kind !== 'in';
+      more.hidden = kind !== 'out';
+      acctLabel.textContent = kind === 'out' ? 'Paid from' : 'Into';
+      merchant.placeholder = kind === 'out' ? 'e.g. Wet market' : 'Optional note';
+      noteLabel.textContent = kind === 'out' ? 'What for' : 'Note';
+      chipBox.replaceChildren.apply(chipBox, d.categories.map(function (c) {
+        return chip(c, c === selected, function () { selected = selected === c ? '' : c; draw(); });
+      }));
     }
-    function drawChips() {
-      chipBox.replaceChildren();
-      d.categories.forEach(function (c) { chipBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(c === selected), onclick: function () { selected = c; drawChips(); } }, c)); });
-    }
-    drawKind(); drawChips();
+    draw(); pickAccount();
+
     /** Saves, then shows the list with the new entry, or a fresh form when adding several. */
     function submit(another) {
       var v = parseMoney(amount.value);
       if (isNaN(v) || v <= 0) return toast('Enter an amount');
-      if (kind === 'out' && !selected) return toast('Pick a category');
-      var payload = { amount: v, direction: kind, merchant: merchant.value.trim(), category: kind === 'in' ? 'Income' : selected, tag: tag.value.trim(), account: acct.value, date: date.value };
-      var delta = kind === 'in' ? v : -v;
+      var r = kind === 'out' ? null : RECEIVED[choice];
+      var note = merchant.value.trim();
+      var payload = kind === 'out'
+        ? { amount: v, direction: 'out', merchant: note, category: selected || 'Other', tag: tag.value.trim(), account: acct.value, date: date.value }
+        : { amount: v, direction: r.direction, merchant: note || r.name, category: r.category, tag: r.tag, account: acct.value, date: date.value };
+      var delta = kind === 'out' ? -v : v;
+      store.set(rememberKey(), payload.account);
       if (another) {
-        state.nextAdd = { account: payload.account, date: payload.date };
+        state.nextAdd = { kind: kind, choice: choice, account: payload.account, date: payload.date };
       } else {
         state.tab = 'txns'; state.account = null; state.filter = 'all'; state.query = '';
         state.month = payload.date.slice(0, 7);
@@ -692,7 +725,7 @@
       }
       mutate('addManual', payload, function () {
         var id = 'tmp-' + Date.now();
-        db.rows.unshift({ id: id, datetime: payload.date + 'T12:00:00', direction: kind, amount: v, account: payload.account, toAccount: '', merchantRaw: payload.merchant,
+        db.rows.unshift({ id: id, datetime: payload.date + 'T12:00:00', direction: payload.direction, amount: v, account: payload.account, toAccount: '', merchantRaw: payload.merchant,
           merchant: payload.merchant, category: payload.category, tag: payload.tag, note: '', bank: 'manual', status: 'ok', effects: [{ account: payload.account, delta: delta }] });
         db.recentIds.unshift(id);
         moveBalance(payload.account, delta);
@@ -702,14 +735,14 @@
     }
     show(h('div', { class: 'card editor' },
       h('h2', null, 'Add an entry'),
-      h('div', { class: 'small muted' }, 'For cash and anything the bank did not email about.'),
+      h('div', { class: 'small muted' }, 'For rebates, cash and anything the bank did not email about.'),
       kindBox,
+      choiceBox,
       h('label', { class: 'field' }, 'Amount (SGD)', amount),
-      h('label', { class: 'field' }, 'What for', merchant),
-      h('div', { class: 'stack' }, h('div', { class: 'small muted' }, 'Category'), chipBox),
-      h('label', { class: 'field' }, 'Keyword', tag),
-      h('label', { class: 'field' }, 'Paid from', acct),
+      h('label', { class: 'field' }, acctLabel, acct),
+      h('label', { class: 'field' }, noteLabel, merchant),
       h('label', { class: 'field' }, 'Date', date),
+      more,
       h('button', { class: 'btn', onclick: function () { submit(false); } }, 'Add entry'),
       h('button', { class: 'btn ghost', onclick: function () { submit(true); } }, 'Add and enter another')));
   }

@@ -2,7 +2,7 @@
  * Opens the app from the phone at once, then refreshes the saved files in the background,
  * so a published update appears on the next open. Money data is never cached here.
  */
-var VERSION = 'v5';
+var VERSION = 'v6';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'vouchers.js', 'mock-api.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', function (e) {
