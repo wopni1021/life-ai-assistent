@@ -201,11 +201,17 @@ function parseOcbc_(subject, t) {
 
 /* ---------- classification ---------- */
 
+/** Sheets turns 0001 into 1, so short numbers get their zeros back before comparing. */
+function last4Key_(v) {
+  var s = String(v === undefined || v === null ? '' : v).trim();
+  return /^\d{1,3}$/.test(s) ? ('0000' + s).slice(-4) : s;
+}
+
 function findAccount_(accounts, bank, last4, type) {
   if (!last4) return null;
   for (var i = 0; i < accounts.length; i++) {
     var a = accounts[i];
-    if (String(a.last4) === String(last4) && (!bank || a.bank === bank) && (!type || a.type === type)) return a;
+    if (last4Key_(a.last4) === last4Key_(last4) && (!bank || a.bank === bank) && (!type || a.type === type)) return a;
   }
   return null;
 }

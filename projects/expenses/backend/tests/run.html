@@ -214,6 +214,7 @@ cases.forEach(function (c) {
   eq('own name with bank after it', isOwnName_('Jane Tan at DBS BANK LTD', ['Jane Tan']), true);
   eq('different name', isOwnName_('JOHN LEE', ['Jane Tan']), false);
   eq('masked but different', isOwnName_('JOXE TAX', ['Jane Tan']), false);
+  eq('a last4 that Sheets stored as 1 still matches 0001', findAccount_([{ id: 'x', bank: 'OCBC', type: 'bank', last4: 1 }], 'OCBC', '0001', 'bank').id, 'x');
   eq('last 4 digits', [lastDigits4_('360 Account (-126666)'), lastDigits4_('(-011111)'), lastDigits4_('no digits')], ['6666', '1111', '']);
 
   var rows = [
