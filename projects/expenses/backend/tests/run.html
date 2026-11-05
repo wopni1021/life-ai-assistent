@@ -12,7 +12,10 @@ var ctx = {
   accounts: [
     { id: 'dbs-savings', name: 'DBS Savings', type: 'bank', bank: 'DBS', last4: '1111' },
     { id: 'uob-account', name: 'UOB Account', type: 'bank', bank: 'UOB', last4: '2222' },
-    { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', last4: '3333' }
+    { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', last4: '3333' },
+    { id: 'dbs-multiplier', name: 'DBS Multiplier', type: 'bank', bank: 'DBS', last4: '5555' },
+    { id: 'ocbc-360', name: 'OCBC 360', type: 'bank', bank: 'OCBC', last4: '6666' },
+    { id: 'ocbc-card', name: 'OCBC Card', type: 'card', bank: 'OCBC', last4: '7777' }
   ],
   ownNames: ['jane tan'],
   defaultCategory: 'Dining',
@@ -23,7 +26,7 @@ var ctx = {
     { pattern: 're:^GV\\b', name: 'Golden Village', category: 'Entertainment', tag: 'movies' }
   ]
 };
-var DBS = 'ibanking.alert@dbs.com', UOB = 'unialerts@uobgroup.com';
+var DBS = 'ibanking.alert@dbs.com', UOB = 'unialerts@uobgroup.com', OCBC = 'Notifications@ocbc.com';
 
 var cases = [
   { n: 'DBS PayNow to a shop',
@@ -93,6 +96,46 @@ var cases = [
     body: 'A transaction of JPY 5900.00 was made with your UOB Card ending 3333 on 30/09/26 at AMAZON.CO.JP. If unauthorised, call 24/7 Fraud Hotline now',
     expect: { direction: 'out', amount: '', account: 'uob-card', status: 'review', merchantRaw: 'AMAZON.CO.JP', note: 'JPY 5900.00 (enter the SGD amount from your statement)' } },
   { n: 'UOB eStatement notice is ignored', from: UOB, subj: 'Your eStatement/eAdvice is ready for viewing', body: 'Dear Customer, your Credit Card eStatement is ready for viewing.', expectKind: 'ignore' },
+  { n: 'DBS transfer to own Multiplier account',
+    from: DBS, subj: 'iBanking Alerts',
+    body: '| Transaction Ref: FT0001 Dear Customer, Your Funds Transfer to own account dated 05 Nov has been completed. |\n| Date & Time: | 05 Nov18:15(SGT) |\n| Amount: | SGD 30000.00 |\n| From: | DBS Savings Plus Account A/C ending 1111 |\n| To: | DBS Multiplier Account (A/C ending 5555) |\n\nIf unauthorised, please call DBS hotline.',
+    expect: { direction: 'transfer', amount: 30000, account: 'dbs-savings', toAccount: 'dbs-multiplier', status: 'ok' } },
+  { n: 'DBS own-account transfer to an account not set up yet',
+    from: DBS, subj: 'iBanking Alerts',
+    body: '| Dear Customer, Your Funds Transfer to own account dated 05 Nov has been completed. |\n| Amount: | SGD 500.00 |\n| From: | DBS Savings Plus Account A/C ending 1111 |\n| To: | DBS Other Account (A/C ending 4444) |\n\nIf unauthorised, please call DBS hotline.',
+    expect: { direction: 'transfer', amount: 500, toAccount: '', status: 'review', category: 'Transfer' } },
+  { n: 'OCBC funds transfer to own DBS account',
+    from: OCBC, subj: 'We have processed your funds transfer request',
+    body: 'Dear Valued Customer We have received your request to make the following transfer: | Date of Transfer | : | 29 Sep 2026 | | Time of Transfer | : | 08.41 AM SGT | | Amount | : | SGD 100,000.00 | | From your account | : | 360 Account (-126666) | | To account | : | Jane Tan (-011111) at DBS BANK LTD | | Reference number | : | 1000000000000001 | You can log in to OCBC Online Banking',
+    expect: { direction: 'transfer', amount: 100000, account: 'ocbc-360', toAccount: 'dbs-savings', status: 'ok' } },
+  { n: 'OCBC funds transfer to someone else, no commas',
+    from: OCBC, subj: 'We have processed your funds transfer request',
+    body: 'We have received your request to make the following transfer: Amount : SGD 250.00 From your account : 360 Account (-126666) To account : Some Person (-019999) at UOB Reference number : 1000000000000002 You can log in',
+    expect: { direction: 'out', amount: 250, account: 'ocbc-360', merchantRaw: 'Some Person at UOB', category: 'Other', status: 'guess' } },
+  { n: 'OCBC PayNow to own masked name',
+    from: OCBC, subj: 'PayNow transfer made',
+    body: 'Dear Valued Customer\n\nThe following PayNow transfer has been made to JAXE TAX using his/her Mobile (+******1234).\n\n| Date | : 29 Sep 2026 |\n| Time | : 08:43 AM SGT |\n| Amount | : SGD 10,000.00 |\n| From your account | : 360 Account (-126666) |\n| Description | : OTHR |\n| Reference number | : 1000000000000003 |\n\nIf you have any questions',
+    expect: { direction: 'transfer', amount: 10000, account: 'ocbc-360', toAccount: '', status: 'review' } },
+  { n: 'OCBC PayNow to a shop',
+    from: OCBC, subj: 'PayNow transfer made',
+    body: 'The following PayNow transfer has been made to KOPI SHOP PTE LTD using UEN (12345678X). Amount : SGD 6.50 From your account : 360 Account (-126666) Reference number : 1000000000000004 If you have any questions',
+    expect: { direction: 'out', amount: 6.5, merchantRaw: 'KOPI SHOP PTE LTD', category: 'Dining', status: 'guess' } },
+  { n: 'OCBC deposit from own name',
+    from: OCBC, subj: 'OCBC Alert: Deposit in your account',
+    body: 'Dear Valued Customer,\n\nA deposit was made in your account. Here are the details:\n\nTime of deposit: 6:30 PM\nAmount: SGD 1.00\nAccount that money was deposited in: (-126666)\nReference: from JANE TAN\n\nFor assistance at any time, please call us',
+    expect: { direction: 'transfer_in', amount: 1, account: 'ocbc-360', category: 'Transfer' } },
+  { n: 'OCBC deposit from an employer',
+    from: OCBC, subj: 'OCBC Alert: Deposit in your account',
+    body: 'A deposit was made in your account. Time of deposit: 9:00 AM Amount: SGD 3,200.00 Account that money was deposited in: (-126666) Reference: from SOME EMPLOYER PTE LTD For assistance at any time',
+    expect: { direction: 'in', amount: 3200, account: 'ocbc-360', merchantRaw: 'SOME EMPLOYER PTE LTD', category: 'Income', status: 'ok' } },
+  { n: 'OCBC card purchase (guessed format)',
+    from: OCBC, subj: 'OCBC Alert: Card transaction',
+    body: 'A transaction of SGD 23.40 was made on your OCBC card ending 7777 at FAIRPRICE XTRA on 05 Nov 2026. If unauthorised, call us.',
+    expect: { direction: 'out', amount: 23.4, account: 'ocbc-card', merchantRaw: 'FAIRPRICE XTRA' } },
+  { n: 'OCBC marketing is ignored', from: OCBC, subj: '6% cashback across the things you do every day', body: 'Earn easier cashback across the things you do every day. 6% cashback on dining. Spend S$800 a month.', expectKind: 'ignore' },
+  { n: 'OCBC statement notice is ignored', from: OCBC, subj: 'OCBC Notification: Your credit card e-Statement for Nov 2026 is ready', body: 'You may now view or download the latest monthly e-Statement.', expectKind: 'ignore' },
+  { n: 'OCBC credit limit notice is ignored', from: OCBC, subj: 'OCBC: Credit limit temporarily increased', body: 'Temporary credit limit: $10000.00 Original credit limit: $9800.00', expectKind: 'ignore' },
+  { n: 'OCBC unknown payment email goes to Unparsed', from: OCBC, subj: 'OCBC Alert: Something new', body: 'Something happened. Amount: SGD 12.00 on your account.', expectKind: 'unknown' },
   { n: 'UOB payment received is ignored', from: UOB, subj: 'UOB-Credit Card Payment Received', body: 'Total payment received as of your last statement for UOB ONE CARD Card is $ 1593.82.', expectKind: 'ignore' },
   { n: 'UOB unknown wording is flagged', from: UOB, subj: 'UOB - Something new', body: 'We changed our terms.', expectKind: 'unknown' }
 ];
@@ -159,6 +202,31 @@ cases.forEach(function (c) {
   var guessed = rows.concat([{ datetime: '2026-10-12T10:00:00', direction: 'out', amount: 7, account: 'dbs', category: 'Dining', status: 'guess' }]);
   eq('guess rows count in balances', balances_(accts, guessed).totalMoney, 4356.66);
   eq('guess rows count in spending', monthSummary_(guessed, '2026-10').total, 62);
+})();
+
+// ---- Own names and transfer pairing ----
+(function () {
+  function eq(name, got, want) {
+    if (JSON.stringify(got) === JSON.stringify(want)) passed++;
+    else fails.push(name + ': expected ' + JSON.stringify(want) + ' got ' + JSON.stringify(got));
+  }
+  eq('masked own name', isOwnName_('JAXE TAX', ['Jane Tan']), true);
+  eq('own name with bank after it', isOwnName_('Jane Tan at DBS BANK LTD', ['Jane Tan']), true);
+  eq('different name', isOwnName_('JOHN LEE', ['Jane Tan']), false);
+  eq('masked but different', isOwnName_('JOXE TAX', ['Jane Tan']), false);
+  eq('last 4 digits', [lastDigits4_('360 Account (-126666)'), lastDigits4_('(-011111)'), lastDigits4_('no digits')], ['6666', '1111', '']);
+
+  var rows = [
+    { datetime: '2026-09-29T08:43:00', direction: 'transfer', amount: 10000, account: 'ocbc-360', toAccount: '', status: 'review' },
+    { datetime: '2026-09-29T08:42:00', direction: 'in', amount: 10000, account: 'uob-account', merchantRaw: '', status: 'review' },
+    { datetime: '2026-09-29T08:41:00', direction: 'transfer', amount: 500, account: 'dbs-savings', toAccount: 'ocbc-360', status: 'ok' },
+    { datetime: '2026-09-29T08:45:00', direction: 'transfer_in', amount: 500, account: 'ocbc-360', status: 'ok' },
+    { datetime: '2026-09-29T08:43:00', direction: 'in', amount: 99, account: 'uob-account', merchantRaw: '', status: 'review' },
+    { datetime: '2026-09-29T11:00:00', direction: 'transfer', amount: 77, account: 'ocbc-360', toAccount: '', status: 'review' },
+    { datetime: '2026-09-29T08:40:00', direction: 'in', amount: 77, account: 'uob-account', merchantRaw: '', status: 'review' }
+  ];
+  eq('pairs: no destination yet, exact match, nothing for other amount or 2 hours apart', pairTransfers_(rows),
+    [{ incoming: 1, outgoing: 0, toAccount: 'uob-account' }, { incoming: 3, outgoing: 2, toAccount: '' }]);
 })();
 
 // ---- Vouchers ----

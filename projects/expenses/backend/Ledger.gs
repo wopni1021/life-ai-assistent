@@ -73,6 +73,31 @@ function cardSinceLastPayment_(rows, cardId) {
   return cents_(sum);
 }
 
+/**
+ * Incoming rows that repeat an outgoing transfer between own accounts, for the same amount within 30 minutes.
+ * An exact match (the transfer already names this account) wins over a transfer with no destination yet.
+ * Returns [{incoming, outgoing, toAccount}]: row indexes, and the destination to fill in ('' when already set).
+ */
+function pairTransfers_(rows) {
+  var used = {}, pairs = [];
+  function close(a, b) { return Math.abs(new Date(a.datetime) - new Date(b.datetime)) <= 30 * 60 * 1000; }
+  rows.forEach(function (ri, i) {
+    var incoming = ri.direction === 'transfer_in' || (ri.direction === 'in' && !ri.merchantRaw);
+    if (!incoming || ri.status === 'dup') return;
+    var exact = -1, open = -1;
+    rows.forEach(function (ro, j) {
+      if (used[j] || Number(ro.amount) !== Number(ri.amount) || !close(ro, ri)) return;
+      if ((ro.direction === 'transfer' || ro.direction === 'card_payment') && ro.toAccount === ri.account && exact < 0) exact = j;
+      if (ro.direction === 'transfer' && !ro.toAccount && ro.account !== ri.account && open < 0) open = j;
+    });
+    var j = exact >= 0 ? exact : open;
+    if (j < 0) return;
+    used[j] = true;
+    pairs.push({ incoming: i, outgoing: j, toAccount: exact >= 0 ? '' : ri.account });
+  });
+  return pairs;
+}
+
 function monthOf_(r) { return String(r.datetime || '').slice(0, 7); }
 
 /** Spending in one month ('YYYY-MM'): purchases minus refunds. Transfers, card payments and adjustments are not spending. */

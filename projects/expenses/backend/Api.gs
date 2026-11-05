@@ -234,7 +234,7 @@ function setCategory_(req) {
   var ruleAdded = false;
   if (req.applyToMerchant && cur.merchantRaw && cur.category) {
     ruleAdded = addRule_(String(cur.merchantRaw), cur.merchant || String(cur.merchantRaw), cur.category, cur.tag);
-    if (ruleAdded) reapplyRules();
+    if (ruleAdded) reapply_(false);
   }
   return { id: req.id, status: cur.status, ruleAdded: ruleAdded };
 }

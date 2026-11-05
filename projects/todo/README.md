@@ -1,6 +1,6 @@
 # Todo tool
 
-Status: built and tested locally with sample data and a stand-in for Google's services. Not yet deployed. Live Apps Script, real AI calls, the iPhone Shortcut, ntfy, the Shopee link, the haptic tick and real dictation output still need trying on the phone.
+Status: deployed automatically from GitHub. Tested with sample data and a stand-in for Google's services. Live use of Apps Script, real AI calls, the iPhone Shortcut, ntfy, the Shopee link, the haptic tick and real dictation output still need trying on the phone.
 
 Setup steps: `backend/SETUP.md`. App: `app/`. Backend: `backend/`.
 

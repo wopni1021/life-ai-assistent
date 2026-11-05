@@ -30,6 +30,7 @@ function parseAlert_(from, subject, body) {
   var t = cleanText_(body);
   if (f.indexOf('dbs.com') >= 0) return parseDbs_(String(subject || ''), t);
   if (f.indexOf('uobgroup.com') >= 0) return parseUob_(String(subject || ''), t);
+  if (f.indexOf('ocbc.com') >= 0) return parseOcbc_(String(subject || ''), t);
   return { kind: 'ignore', reason: 'other sender' };
 }
 
@@ -75,7 +76,7 @@ function parseDbs_(subject, t) {
       kind: 'txn', bank: 'DBS', direction: 'out', amount: num_(m[1]), accountType: 'bank',
       last4: pick_(fromS, /ending\s+(\d{4})/i),
       counterparty: stripAccountSuffix_(toS), counterLast4: pick_(toS, /ending\s+(\d{4})/i),
-      ref: ref, channel: channel
+      ref: ref, channel: channel, ownTransfer: /Transfer to own account/i.test(t)
     };
   }
   return { kind: 'unknown' };
@@ -146,6 +147,58 @@ function parseUob_(subject, t) {
   return { kind: 'unknown' };
 }
 
+/** Last 4 digits of the last number in s: "360 Account (-123456)" gives 3456. */
+function lastDigits4_(s) {
+  var nums = String(s || '').match(/\d+/g);
+  if (!nums) return '';
+  var d = nums[nums.length - 1];
+  return d.length >= 4 ? d.slice(-4) : '';
+}
+
+/**
+ * OCBC sends alerts and marketing from the same address, so only emails that look like a payment are kept.
+ * The card purchase format is a guess until a real 90°N alert has been seen; one that doesn't match lands in Unparsed.
+ */
+function parseOcbc_(subject, t) {
+  if (/e-?Statement|credit limit|birthday/i.test(subject)) return { kind: 'ignore', reason: 'not a payment' };
+  var ref = pick_(t, /Reference number\s*:\s*(\S+)/i);
+  var m = new RegExp('Amount\\s*:\\s*' + AMT_, 'i').exec(t);
+
+  if (m && /A deposit was made/i.test(t)) {
+    return {
+      kind: 'txn', bank: 'OCBC', direction: 'in', amount: num_(m[1]), accountType: 'bank',
+      last4: lastDigits4_(pick_(t, /deposited in\s*:\s*(\S+)/i)),
+      counterparty: pick_(t, /Reference\s*:\s*(?:from\s+)?(.+?)(?:\s+For assistance|\s+Thank you|$)/i),
+      counterLast4: '', ref: '', channel: 'Deposit'
+    };
+  }
+  if (m && /PayNow transfer has been made/i.test(t)) {
+    return {
+      kind: 'txn', bank: 'OCBC', direction: 'out', amount: num_(m[1]), accountType: 'bank',
+      last4: lastDigits4_(pick_(t, /From your account\s*:\s*(.+?)\s+(?:Description|Reference number|If you have)/i)),
+      counterparty: pick_(t, /has been made to\s+(.+?)\s+using/i), counterLast4: '', ref: ref, channel: 'PayNow'
+    };
+  }
+  if (m && /following transfer/i.test(t)) {
+    var toS = pick_(t, /To account\s*:\s*(.+?)\s+Reference number/i);
+    return {
+      kind: 'txn', bank: 'OCBC', direction: 'out', amount: num_(m[1]), accountType: 'bank',
+      last4: lastDigits4_(pick_(t, /From your account\s*:\s*(.+?)\s+To account/i)),
+      counterparty: toS.replace(/\s*\(-?\d+\)/, '').replace(/\s+/g, ' ').trim(),
+      counterLast4: lastDigits4_(pick_(toS, /(\(-?\d+\))/)), ref: ref, channel: 'Transfer'
+    };
+  }
+  var card = new RegExp(AMT_ + '.{0,80}?card\\s+(?:ending|no\\.?)\\s*(?:in\\s*|with\\s*)?[x*]*\\s*(\\d{4})', 'i').exec(t);
+  if (card) {
+    return {
+      kind: 'txn', bank: 'OCBC', direction: 'out', amount: num_(card[1]), accountType: 'card', last4: card[2],
+      counterparty: pick_(t.slice(card.index), /\bat\s+(.+?)(?:\s+on\s+\d|\.\s|\.$|\s+If\b|$)/i), counterLast4: '', ref: '', channel: 'Card'
+    };
+  }
+  if (/(Amount\s*:|transaction of)\s*(?:SGD|S\$|\$)/i.test(t)) return { kind: 'unknown' };
+  return { kind: 'ignore', reason: 'not a payment' };
+}
+
 /* ---------- classification ---------- */
 
 function findAccount_(accounts, bank, last4, type) {
@@ -157,12 +210,25 @@ function findAccount_(accounts, bank, last4, type) {
   return null;
 }
 
+/** Banks sometimes mask a name, like "JAXE TAX": an x in the name stands for any letter. */
+function maskedMatch_(n, o) {
+  for (var start = 0; start + o.length <= n.length; start++) {
+    var ok = true;
+    for (var k = 0; k < o.length && ok; k++) {
+      var c = n.charAt(start + k);
+      ok = c === o.charAt(k) || (c === 'x' && /[a-z]/.test(o.charAt(k)));
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
 function isOwnName_(name, ownNames) {
-  var n = String(name || '').toLowerCase();
+  var n = String(name || '').toLowerCase().replace(/\s+/g, ' ');
   if (!n) return false;
   for (var i = 0; i < ownNames.length; i++) {
-    var o = String(ownNames[i] || '').toLowerCase().trim();
-    if (o && n.indexOf(o) >= 0) return true;
+    var o = String(ownNames[i] || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (o && (n.indexOf(o) >= 0 || (n.indexOf('x') >= 0 && maskedMatch_(n, o)))) return true;
   }
   return false;
 }
@@ -213,7 +279,7 @@ function buildRow_(p, ctx) {
     row.toAccount = dest ? dest.id : '';
     row.merchant = 'Card payment'; row.category = 'Transfer';
     if (!row.toAccount) row.status = 'review';
-  } else if (p.direction === 'out' && (dest || own)) {
+  } else if (p.direction === 'out' && (dest || own || p.ownTransfer)) {
     row.direction = 'transfer';
     row.toAccount = dest ? dest.id : '';
     row.merchant = dest ? 'Transfer to ' + dest.name : 'Transfer to self';

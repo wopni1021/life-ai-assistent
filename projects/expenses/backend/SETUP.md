@@ -52,6 +52,11 @@ Pushing a change under `projects/expenses/backend/` to `main` runs the tests, up
 - `CLASPRC_JSON` can change this script, and this script can read your Gmail, so keep two-factor sign-in on for GitHub. To cancel it, remove clasp at https://myaccount.google.com/permissions.
 - By hand, without GitHub: paste the files into the Apps Script editor and use Deploy > Manage deployments > New version.
 
+## Adding an account
+1. Add a row to the Accounts tab: a short id, a name, `bank` or `card`, the bank (`DBS`, `UOB` or `OCBC`), and the last 4 digits as they appear in alerts.
+2. In Apps Script, run `backfill` (pulls in the last 30 days of alerts; change the number inside to go further back) and then `reapplyRules`, so earlier rows that mention the account become transfers.
+3. In the app, open the account and set its real balance.
+
 ## Vouchers
 The `Vouchers` tab is created the first time you add a voucher in the app. To change when a voucher counts as due soon, add a row to the Settings tab: `voucherWarnDays` and a number of days (30 if there is no row).
 

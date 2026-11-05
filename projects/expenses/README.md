@@ -45,6 +45,16 @@ Implications:
 - Transfers between own accounts show up twice (OCBC out, DBS in). Match by amount and time, and mark them as transfers, not spending or income.
 - No balances in any email, as expected.
 
+## OCBC and more accounts (added 2026-11-05)
+Sender `notifications@ocbc.com` also sends offers and statements; only payment emails are kept.
+- Funds transfer: subject "We have processed your funds transfer request". Amount, "From your account : 360 Account (-NNNNNN)", "To account : NAME (-NNNNNN) at BANK", reference.
+- PayNow made: subject "PayNow transfer made". "has been made to NAME using ...". The name can be masked ("JAXE TAX"); an x matches any letter when checking own names.
+- Deposit: subject "OCBC Alert: Deposit in your account" (alerts turned on 5 Nov). "Account that money was deposited in: (-NNNNNN)", "Reference: from NAME".
+- 90°N card purchases: format not seen yet. The reader has a guess; anything with an amount that doesn't match goes to Unparsed.
+- DBS Multiplier uses the normal DBS formats. "Funds Transfer to own account" counts as a transfer.
+- A transfer with no known destination is paired with a matching incoming payment with no sender (same amount, 30 minutes) and gets that account.
+- Accounts tab rows: `dbs-multiplier` (bank, DBS), `ocbc-360` (bank, OCBC), `ocbc-90n` (card, OCBC), each with its last 4 digits.
+
 ## Data per expense
 <!-- Proposed: date/time, amount, currency, merchant, category, account, direction (spend/income/transfer/card payment), source email id (prevents duplicates), note, status (parsed / needs review). -->
 

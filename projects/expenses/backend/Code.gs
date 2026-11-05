@@ -13,7 +13,7 @@ var TABS = {
   Vouchers: ['id', 'name', 'amountLeft', 'expires', 'note', 'status', 'createdAt']
 };
 
-var ALERT_SENDERS = 'from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com)';
+var ALERT_SENDERS = 'from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com OR notifications@ocbc.com)';
 var FETCH_OVERLAP_SECONDS = 3600;
 var FIRST_FETCH_DAYS = 3;
 
@@ -158,6 +158,14 @@ function backfill(days) {
  * A category you typed by hand is kept unless a rule matches, and amounts you typed are kept.
  */
 function reapplyRules() {
+  reapply_(true);
+}
+
+/**
+ * fullReread also re-reads the email behind every "guess" row, so new accounts or own names turn
+ * earlier rows into transfers. Without it (after a save in the app) guesses only get the Rules tab, which is fast.
+ */
+function reapply_(fullReread) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Transactions');
   var n = sh.getLastRow();
   if (n < 2) return;
@@ -168,7 +176,8 @@ function reapplyRules() {
   var ctx = loadContext_();
   var changed = 0;
   vals.forEach(function (row) {
-    if (row[col.status] === 'guess') {
+    var oldStatus = row[col.status];
+    if (oldStatus === 'guess' && !fullReread) {
       var rule = matchRule_(row[col.merchantRaw], ctx.rules);
       if (!rule) return;
       row[col.merchant] = rule.name || row[col.merchant];
@@ -178,7 +187,7 @@ function reapplyRules() {
       changed++;
       return;
     }
-    if (row[col.status] !== 'review') return;
+    if (oldStatus !== 'review' && oldStatus !== 'guess') return;
     var oldCategory = row[col.category], oldTag = row[col.tag], oldMerchant = row[col.merchant];
     var msg;
     try { msg = GmailApp.getMessageById(String(row[col.id])); } catch (e) { return; }
@@ -193,7 +202,7 @@ function reapplyRules() {
     row[col.category] = (isDefault && oldCategory) ? oldCategory : (r.category || oldCategory);
     row[col.tag] = r.tag || oldTag;
     row[col.merchant] = r.merchant || oldMerchant;
-    if (isDefault && oldCategory) row[col.status] = 'ok';
+    if (isDefault && oldCategory && oldStatus === 'review') row[col.status] = 'ok';
     if (!row[col.merchantRaw]) row[col.merchantRaw] = r.merchantRaw;
     if (!row[col.note]) row[col.note] = r.note || '';
     changed++;
@@ -279,8 +288,8 @@ function append_(sh, rows) {
 }
 
 /**
- * An incoming "transfer_in", or an incoming payment with no sender name, is a duplicate
- * when an outgoing transfer already credits the same account for the same amount.
+ * An incoming "transfer_in", or an incoming payment with no sender name, is a duplicate of an outgoing
+ * transfer between own accounts. When that transfer had no destination yet, it gets this account.
  */
 function markDuplicateTransfers_() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Transactions');
@@ -290,18 +299,16 @@ function markDuplicateTransfers_() {
   var head = TABS.Transactions;
   var vals = sh.getRange(start, 1, n - start + 1, head.length).getValues();
   var col = {}; head.forEach(function (h, i) { col[h] = i; });
-  vals.forEach(function (ri, i) {
-    var isIncoming = ri[col.direction] === 'transfer_in' || (ri[col.direction] === 'in' && !ri[col.merchantRaw]);
-    if (!isIncoming || ri[col.status] === 'dup') return;
-    for (var j = 0; j < vals.length; j++) {
-      var ro = vals[j];
-      if ((ro[col.direction] === 'transfer' || ro[col.direction] === 'card_payment') &&
-          ro[col.toAccount] && ro[col.toAccount] === ri[col.account] &&
-          Number(ro[col.amount]) === Number(ri[col.amount]) &&
-          Math.abs(new Date(ro[col.datetime]) - new Date(ri[col.datetime])) <= 30 * 60 * 1000) {
-        sh.getRange(start + i, col.status + 1).setValue('dup');
-        return;
-      }
+  var rows = vals.map(function (v) {
+    var o = {};
+    head.forEach(function (h, i) { o[h] = v[i]; });
+    return o;
+  });
+  pairTransfers_(rows).forEach(function (p) {
+    sh.getRange(start + p.incoming, col.status + 1).setValue('dup');
+    if (p.toAccount) {
+      sh.getRange(start + p.outgoing, col.toAccount + 1).setValue(p.toAccount);
+      sh.getRange(start + p.outgoing, col.status + 1).setValue('ok');
     }
   });
 }

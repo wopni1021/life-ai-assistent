@@ -38,7 +38,7 @@ At the top level:
 | Project | Status |
 | --- | --- |
 | expenses | In use |
-| todo | Built, not yet deployed |
+| todo | Deployed |
 | reminders, research, e-statements, baby shopping | Not started |
 
 ## Privacy
