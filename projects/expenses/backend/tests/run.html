@@ -136,6 +136,9 @@ var cases = [
   { n: 'OCBC statement notice is ignored', from: OCBC, subj: 'OCBC Notification: Your credit card e-Statement for Nov 2026 is ready', body: 'You may now view or download the latest monthly e-Statement.', expectKind: 'ignore' },
   { n: 'OCBC credit limit notice is ignored', from: OCBC, subj: 'OCBC: Credit limit temporarily increased', body: 'Temporary credit limit: $10000.00 Original credit limit: $9800.00', expectKind: 'ignore' },
   { n: 'OCBC unknown payment email goes to Unparsed', from: OCBC, subj: 'OCBC Alert: Something new', body: 'Something happened. Amount: SGD 12.00 on your account.', expectKind: 'unknown' },
+  { n: 'UOB declined transaction is ignored', from: UOB, subj: 'Your transaction has been declined', body: 'A transaction of 4460.00 SGD made with your UOB card ending 3333 on 31 Oct 26, 6:15PM at SOME SHOP was declined due to a payment issue.', expectKind: 'ignore' },
+  { n: 'DBS alert settings notice is ignored', from: DBS, subj: 'iBanking Alerts', body: 'Transaction Ref: NP0001 Dear Customer, We refer to your request dated 31-Oct-2026 for Manage Alert, we are pleased to confirm that this request has been completed.', expectKind: 'ignore' },
+  { n: 'DBS card linking notice is ignored', from: DBS, subj: 'iBanking Alerts', body: 'Dear Customer, This is to notify you that you have made changes via digibank to the account(s) linked to your DBS/POSB Card ending 9999. No further action is required.', expectKind: 'ignore' },
   { n: 'UOB payment received is ignored', from: UOB, subj: 'UOB-Credit Card Payment Received', body: 'Total payment received as of your last statement for UOB ONE CARD Card is $ 1593.82.', expectKind: 'ignore' },
   { n: 'UOB unknown wording is flagged', from: UOB, subj: 'UOB - Something new', body: 'We changed our terms.', expectKind: 'unknown' }
 ];

@@ -79,12 +79,15 @@ function parseDbs_(subject, t) {
       ref: ref, channel: channel, ownTransfer: /Transfer to own account/i.test(t)
     };
   }
+  // Settings and card notices carry no amount, so only emails with one are worth a look in Unparsed.
+  if (!new RegExp(AMT_).test(t)) return { kind: 'ignore', reason: 'no amount' };
   return { kind: 'unknown' };
 }
 
 function parseUob_(subject, t) {
   if (/Payment Received/i.test(subject)) return { kind: 'ignore', reason: 'card payment confirmation' };
   if (/eStatement|eAdvice/i.test(subject)) return { kind: 'ignore', reason: 'statement notice' };
+  if (/declined/i.test(subject)) return { kind: 'ignore', reason: 'declined, nothing was charged' };
   var m;
 
   m = new RegExp('You have received ' + AMT_ + ' in your PayNow-linked account ending (\\d{4})', 'i').exec(t);
