@@ -334,6 +334,43 @@ cases.forEach(function (c) {
 
   eq('unknown text', reviewStatement_('Hello there', { accounts: accts, rows: [] }).status, 'unreadable');
   eq('no matching account', reviewStatement_(ocbc360.replace('000000006666', '000000009999'), { accounts: accts, rows: [] }).status, 'no account');
+
+  // Layouts as Google's PDF-to-text gives them: a page's descriptions first, its amounts after.
+  function lineList(r) { return r.lineList.map(function (l) { return l.date + ' ' + l.delta; }); }
+  var uobCardBlocks = 'United Overseas Bank Limited\nStatement Date 02 NOV 2026\nUOB ONE CARD 1111-2222-3333-3333 JANE TAN\n' +
+    'PREVIOUS BALANCE 100.00\n05 OCT 25 SEP BIG STORE SINGAPORE Ref No. : 12345678901234567890\n10.00 CR\n' +
+    '23 OCT 23 OCT GIRO PAYMENT 100.00 CR\n03 OCT 01 OCT NOODLE HOUSE SINGAPORE Ref No. : 12345678901234567891\n' +
+    '04 OCT 02 OCT SHOP SINGAPORE Ref No. : 12345678901234567892\n6.50 1,234.00\n' +
+    'Please note that you are bound by a duty under the rules ... UOB ONE CARD 1111-2222-3333-3333 JANE TAN (continued) Page 2 of 3 Post Date Trans Description of Transaction Transaction Amount Date SGD\n' +
+    '02 NOV 31 OCT SOME CAFE SINGAPORE Ref No. : 12345678901234567893\n8.20\nSUB TOTAL 1,238.70\n';
+  var ub = reviewStatement_(uobCardBlocks, { accounts: accts, rows: [] });
+  eq('card amounts in a block', lineList(ub), ['2026-09-25 10', '2026-10-23 100', '2026-10-01 -6.5', '2026-10-02 -1234', '2026-10-31 -8.2']);
+  eq('card page footer left out of the description', ub.lineList[3].desc, 'SHOP SINGAPORE');
+
+  var dbsBlocks = 'DBS Bank Ltd POSB\nAccount Summary as at 31 Oct 2026\n' +
+    'Savings Account Account No. 000-0-001111 Date Description Withdrawal (-) Deposit (+) Balance (SGD) Balance Brought Forward 1,000.00\n' +
+    '03/10/2026 FAST Payment / Receipt\nPAYNOW TRANSFER 1234567\nTO: SOME SHOP\nOTHER\n08/10/2026 Funds Transfer\nFT261008MB00000001\nIB:SOMEONE\n' +
+    'SG40020000876 (08/2014) DBS Co. Reg. No. 196800306E GST Reg No: MR-8500180-3 / POSB Biz Reg No. 52880148A\n' +
+    '12.50 987.50\n200.00 1,187.50\nBalance Carried Forward 1,187.50\n' +
+    'Savings Account Account No. 000-0-001111 Date Description Balance Brought Forward 1,187.50\n' +
+    '31/10/2026 Interest Earned 0.10 1,187.60 4 4 4\nTotal Balance Carried Forward: 12.50 200.10 1,187.60\n' +
+    'My Account Account No. 222-222222-2 Date Description Balance Brought Forward SGD 50.00\n31/10/2026 Interest 1.00 51.00\nTotal Balance Carried Forward in SGD: 0.00 1.00 51.00\n';
+  var db = reviewStatement_(dbsBlocks, { accounts: accts, rows: [] });
+  eq('DBS date and account', [db.status, db.account, db.periodTo], ['read', 'dbs', '2026-10-31']);
+  eq('DBS amounts in pairs, only this account', lineList(db), ['2026-10-03 -12.5', '2026-10-08 200', '2026-10-31 0.1']);
+  eq('DBS descriptions', db.lineList.map(function (l) { return l.desc; }), ['TO: SOME SHOP', 'IB:SOMEONE', 'Interest Earned']);
+  eq('DBS closing balance', db.lineList.closing, 1187.6);
+  var broken = reviewStatement_(dbsBlocks.replace('200.00 1,187.50', '200.00 1,190.00'), { accounts: accts, rows: [] });
+  eq('balances that do not add up are reported', /does not add up/.test(broken.note), true);
+
+  var ocbcCardRewards = 'OCBC Bank\nSTATEMENT DATE PAYMENT DUE DATE 01-11-2026 24-11-2026\nJANE TAN 1234-5678-0000-7777\n' +
+    "LAST MONTH'S BALANCE 50.00\n 23/10 PAYMENT BY GIRO (50.00)  03/10 SOME CLINIC SINGAPORE SG 30.00 \nSUBTOTAL 30.00\n" +
+    'Rewards Currency Sources Opening  Balance Earned this Period\n';
+  var oc = reviewStatement_(ocbcCardRewards, { accounts: accts, rows: [] });
+  eq('a rewards table does not make a card look like a bank account', [oc.type, lineList(oc)], ['card', ['2026-10-23 50', '2026-10-03 -30']]);
+
+  eq('posted just after the period keeps the year', statementLines_('BALANCE B/F 10.00 01 NOV 31 OCT INTEREST CREDIT 1.00 11.00 BALANCE C/F', 'OCBC', 'bank', '2026-10-31').map(function (l) { return l.date; }), ['2026-11-01']);
+  eq('December line in a January statement', statementLines_('BALANCE B/F 10.00 30 DEC SHOP 1.00 9.00 BALANCE C/F', 'OCBC', 'bank', '2027-01-31').map(function (l) { return l.date; }), ['2026-12-30']);
 })();
 
 // ---- Vouchers ----

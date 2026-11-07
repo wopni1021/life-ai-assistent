@@ -38,17 +38,58 @@ function statementEnd_(t) {
   if (m) return { from: ymd_(m[3], monthOfToken_(m[2]), m[1]), to: ymd_(m[6], monthOfToken_(m[5]), m[4]) };
   m = /STATEMENT DATE.{0,120}?\b(\d{1,2})[ \-\/]([A-Z]{3}|\d{1,2})[ \-\/](\d{4}|\d{2})\b/i.exec(t);
   if (m) return { from: '', to: ymd_(m[3], monthOfToken_(m[2]), m[1]) };
+  // DBS consolidated statements: "Account Summary as at 31 Oct 2026".
+  m = /\bas (?:at|of) (\d{1,2}) ([A-Z]{3}) (\d{4})\b/i.exec(t);
+  if (m && monthOfToken_(m[2])) return { from: '', to: ymd_(m[3], monthOfToken_(m[2]), m[1]) };
   return null;
 }
 
-/** Bank statements carry a running balance; card statements don't. */
-function statementType_(t) { return /BALANCE B\/F|BALANCE BROUGHT FORWARD|OPENING BALANCE/i.test(t) ? 'bank' : 'card'; }
+/** Card statements start from last month's balance; bank statements carry a running balance. */
+function statementType_(t) {
+  if (/LAST MONTH'S BALANCE|PREVIOUS BALANCE/i.test(t)) return 'card';
+  return /BALANCE B\/F|BALANCE BROUGHT FORWARD/i.test(t) ? 'bank' : 'card';
+}
 
-function statementAccount_(t, bank, type, accounts) {
+var BANK_START_RE_ = /BALANCE (?:B\/F|BROUGHT FORWARD)\s*(?:SGD\s*)?([\d,]+\.\d{2})/gi;
+var BANK_END_RE_ = /BALANCE (?:C\/F|CARRIED FORWARD)|Total Withdrawals|\bTotal\s+[\d,]+\.\d{2}|End of Transaction Details/i;
+var ACCOUNT_NO_RE_ = /Account (?:No\.?|Number)\s*:?\s*(\d[\d-]{5,}\d)|\b(\d{3}-\d{3}-\d{3}-\d)\b/gi;
+
+/** Page footers and repeated headers that Google's text puts between transactions. */
+function statementNoise_(t) {
+  return t.replace(/Please note that you are bound by a duty.*?(?:Transaction Amount Date SGD|Balance SGD|$)/gi, ' ')
+    .replace(/SG\d+ \(\d{2}\/\d{4}\) DBS Co\. Reg\. No\..*?POSB Biz Reg No\. \w+/gi, ' ');
+}
+
+/**
+ * The transaction parts of a statement: [{text, start (bank opening balance), accountNo}].
+ * A DBS statement has a part per account and per page; a card statement has one.
+ */
+function statementParts_(t, bank, type) {
+  if (type !== 'bank') {
+    var startRe = bank === 'OCBC' ? /LAST MONTH'S BALANCE\s*\(?[\d,]+\.\d{2}\)?/i : /PREVIOUS BALANCE\s*[\d,]+\.\d{2}(?:\s*CR)?/i;
+    var endRe = bank === 'OCBC' ? /\bSUB ?TOTAL\b/i : /\bSUB ?TOTAL\b|End of Transaction Details/i;
+    var s = startRe.exec(t);
+    if (!s) return [];
+    return [{ text: between_(t, startRe, endRe), start: null, accountNo: '', opening: num_(String(s[0]).replace(/^\D+/, '').replace(/[()\sCR]/g, '')) }];
+  }
+  var parts = [], m, re = new RegExp(BANK_START_RE_.source, 'gi');
+  while ((m = re.exec(t))) {
+    var from = re.lastIndex, rest = t.slice(from);
+    var e = BANK_END_RE_.exec(rest), next = new RegExp(BANK_START_RE_.source, 'i').exec(rest);
+    var stop = Math.min(e ? e.index : rest.length, next ? next.index : rest.length);
+    var before = t.slice(Math.max(0, m.index - 400), m.index), no = '', a, ar = new RegExp(ACCOUNT_NO_RE_.source, 'gi');
+    while ((a = ar.exec(before))) no = (a[1] || a[2]).replace(/\D/g, '');
+    parts.push({ text: rest.slice(0, stop), start: num_(m[1]), accountNo: no });
+  }
+  return parts;
+}
+
+function statementAccount_(t, bank, type, accounts, parts) {
   var cands = [], m, re = /\b\d{4}[- ]\d{4}[- ]\d{4}[- ](\d{4})\b/g;
+  (parts || []).forEach(function (p) { if (p.accountNo) cands.push(lastDigits4_(p.accountNo)); });
   while ((m = re.exec(t))) cands.push(m[1]);
-  m = /Account (?:No\.?|Number)\s*:?\s*([\d-]{6,})/i.exec(t) || /\b(\d{3}-\d{3}-\d{3}-\d)\b/.exec(t);
-  if (m) cands.unshift(lastDigits4_(m[1].replace(/\D/g, '')));
+  m = /Account (?:No\.?|Number)\s*:?\s*(\d[\d-]{5,}\d)/i.exec(t) || /\b(\d{3}-\d{3}-\d{3}-\d)\b/.exec(t);
+  if (m) cands.push(lastDigits4_(m[1].replace(/\D/g, '')));
   for (var i = 0; i < cands.length; i++) {
     var a = findAccount_(accounts, bank, cands[i], type) || findAccount_(accounts, bank, cands[i], null);
     if (a) return { account: a, last4: cands[i] };
@@ -67,75 +108,95 @@ function between_(t, startRe, endRe) {
 function moneyValue_(tok) { return num_(String(tok).replace(/[()\sCR]/g, '')); }
 
 function cleanDesc_(s) {
-  return String(s || '').replace(/Ref No\.?\s*:?\s*\d+/gi, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return String(s || '').replace(/Ref No\.?\s*:?\s*\d+/gi, '')
+    .replace(/^\s*(?:FAST Payment \/ Receipt|FAST Collection|Funds Transfer|Point-of-Sale Transaction)\s*/i, '')
+    .replace(/\b(?:PAYNOW TRANSFER|NETS QR PAYMENT)\s+\d+/gi, '')
+    .replace(/[A-Z0-9]*\d{8,}[A-Z0-9]*/gi, '').replace(/(?:\s+\d)+(?:\s+Total)?\s*$/, '').replace(/\s+OTHER\s*$/i, '')
+    .replace(/\s+/g, ' ').trim().slice(0, 80);
 }
+
+var FX_CODES_ = 'USD|JPY|EUR|GBP|AUD|NZD|MYR|CNY|RMB|HKD|THB|KRW|TWD|IDR|PHP|VND|INR|CHF|CAD';
 
 /**
  * Transaction lines: [{date, desc, amount, delta}]. amount is positive; delta is the change from the account's
  * point of view (a card purchase is negative, a card credit positive, bank money in positive).
+ * Google's text often lists a page's descriptions first and its amounts after, so entries and amounts are
+ * paired in order. A bank line's direction comes from the running balance, which also checks the pairing.
+ * lines.problem says why lines were left out; lines.closing is the last balance seen.
  */
-function statementLines_(t, bank, type, end) {
-  var endMonth = Number(end.slice(5, 7)), endYear = Number(end.slice(0, 4));
-  function dateOf(d, mon) {
+function statementLines_(t, bank, type, end, accountNo) {
+  var endYear = Number(end.slice(0, 4));
+  function dateOf(d, mon, y) {
     var mm = monthOfToken_(mon);
-    if (!mm) return '';
-    return ymd_(mm > endMonth ? endYear - 1 : endYear, mm, Number(d));
+    if (!mm || mm > 12 || Number(d) < 1 || Number(d) > 31) return '';
+    if (y) return ymd_(y, mm, Number(d));
+    // No year printed: the statement's year, unless that lands well after the statement (a December line in a January statement).
+    var same = ymd_(endYear, mm, Number(d));
+    return Date.parse(same) - Date.parse(end) > 45 * 86400000 ? ymd_(endYear - 1, mm, Number(d)) : same;
   }
-  var section, marker, pick, prev = null;
-  if (type === 'bank') {
-    var bf = /BALANCE (?:B\/F|BROUGHT FORWARD)\s*([\d,]+\.\d{2})/i.exec(t);
-    prev = bf ? num_(bf[1]) : null;
-    section = between_(t, /BALANCE (?:B\/F|BROUGHT FORWARD)\s*[\d,]+\.\d{2}/i,
-      /BALANCE (?:C\/F|CARRIED FORWARD)|Total Withdrawals|\bTotal\s+[\d,]+\.\d{2}|End of Transaction Details/i);
-    marker = /\b(\d{2}) (JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(?: (\d{2}) (JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC))?\b/gi;
-    pick = function (m) { return dateOf(m[1], m[2]); };
-  } else if (bank === 'OCBC') {
-    section = between_(t, /LAST MONTH'S BALANCE\s*\(?[\d,]+\.\d{2}\)?/i, /\bSUBTOTAL\b|\bSUB TOTAL\b/i);
-    marker = /(?:^|\s)(\d{2})\/(\d{2})(?=\s)/g;
-    pick = function (m) { return dateOf(m[1], m[2]); };
-  } else {
-    section = between_(t, /PREVIOUS BALANCE\s*[\d,]+\.\d{2}(?:\s*CR)?/i, /\bSUB ?TOTAL\b|End of Transaction Details/i);
-    marker = /\b(\d{2}) ([A-Z]{3}) (\d{2}) ([A-Z]{3})\b/g;
-    // UOB lists the posting date first and the purchase date second.
-    pick = function (m) { return dateOf(m[3], m[4]); };
-  }
-  var marks = [], m;
-  while ((m = marker.exec(section))) marks.push({ m: m, start: m.index, end: marker.lastIndex });
+  var MON = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)';
   var lines = [];
-  lines.closing = null;
-  marks.forEach(function (k, j) {
-    var body = section.slice(k.end, j + 1 < marks.length ? marks[j + 1].start : section.length);
-    var toks = [], tm;
-    MONEY_RE_.lastIndex = 0;
-    while ((tm = MONEY_RE_.exec(body))) toks.push({ text: tm[0], index: tm.index, end: MONEY_RE_.lastIndex });
-    if (!toks.length) return;
-    var date = pick(k.m);
-    if (!date) return;
-    var before = body.slice(0, toks[0].index);
-    var amount = moneyValue_(toks[0].text), delta;
-    // A foreign-currency card line shows the original amount first, then the SGD amount.
-    var fx = /\b(USD|JPY|EUR|GBP|AUD|NZD|MYR|CNY|RMB|HKD|THB|KRW|TWD|IDR|PHP|VND|INR|CHF|CAD)\s*$/.exec(before);
-    if (type === 'card' && fx && toks.length > 1) {
-      before = before.slice(0, fx.index) + fx[1] + ' ' + toks[0].text + ' ';
-      toks.shift();
-      amount = moneyValue_(toks[0].text);
-    }
-    var after = type === 'bank' ? body.slice(toks[Math.min(1, toks.length - 1)].end, toks.length > 2 ? toks[2].index : undefined).slice(0, 60) : '';
-    var desc = cleanDesc_(before + ' ' + after);
-    if (/^(?:BALANCE|PREVIOUS BALANCE|SUB ?TOTAL|TOTAL)/i.test(desc)) return;
-    if (type === 'bank') {
-      var bal = toks.length > 1 ? moneyValue_(toks[1].text) : null;
-      if (bal !== null && prev !== null) {
-        delta = cents_(bal - prev);
-        if (Math.abs(Math.abs(delta) - amount) > 0.005) delta = /CR\b/.test(toks[0].text) ? amount : -amount;
-      } else {
-        delta = /CR\b/.test(toks[0].text) ? amount : -amount;
-      }
-      if (bal !== null) { prev = bal; lines.closing = bal; }
+  lines.closing = null; lines.problem = '';
+  var parts = statementParts_(statementNoise_(t), bank, type).filter(function (p) {
+    return !accountNo || !p.accountNo || lastDigits4_(p.accountNo) === lastDigits4_(accountNo);
+  });
+  if (!parts.length) { lines.problem = 'no transaction section found'; return lines; }
+  parts.forEach(function (p) {
+    var marker, pick;
+    if (type === 'bank' && /\b\d{2}\/\d{2}\/\d{4}\b/.test(p.text)) {
+      marker = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g;
+      pick = function (m) { return dateOf(m[1], m[2], m[3]); };
+    } else if (type === 'bank') {
+      marker = new RegExp('\\b(\\d{2}) ' + MON + '(?: (\\d{2}) ' + MON + ')?\\b', 'gi');
+      pick = function (m) { return dateOf(m[1], m[2]); };
+    } else if (bank === 'OCBC') {
+      marker = /(?:^|\s)(\d{2})\/(\d{2})(?=\s)/g;
+      pick = function (m) { return dateOf(m[1], m[2]); };
     } else {
-      delta = /\(|CR\b/.test(toks[0].text) ? amount : -amount;
+      marker = new RegExp('\\b(\\d{2}) ' + MON + ' (\\d{2}) ' + MON + '\\b', 'gi');
+      // UOB lists the posting date first and the purchase date second.
+      pick = function (m) { return dateOf(m[3], m[4]); };
     }
-    lines.push({ date: date, desc: desc, amount: cents_(amount), delta: cents_(delta) });
+    var entries = [], m;
+    while ((m = marker.exec(p.text))) {
+      var date = pick(m);
+      if (date) entries.push({ date: date, start: m.index, end: marker.lastIndex });
+    }
+    // Amounts in order, except a foreign amount, which belongs to the description.
+    var toks = [], tm, re = new RegExp(MONEY_RE_.source, 'g'), fxRe = new RegExp('\\b(?:' + FX_CODES_ + ')\\s*$');
+    while ((tm = re.exec(p.text))) {
+      if (fxRe.test(p.text.slice(Math.max(0, tm.index - 5), tm.index))) continue;
+      toks.push({ text: tm[0], index: tm.index, end: re.lastIndex });
+    }
+    var per = type === 'bank' ? 2 : 1;
+    if (!entries.length) return;
+    if (toks.length !== entries.length * per) {
+      lines.problem = entries.length + ' entries but ' + toks.length + ' amounts in one part';
+      return;
+    }
+    var prev = p.start, found = [];
+    for (var j = 0; j < entries.length; j++) {
+      var k = entries[j];
+      var body = p.text.slice(k.end, j + 1 < entries.length ? entries[j + 1].start : p.text.length);
+      var desc = cleanDesc_(body.replace(new RegExp(MONEY_RE_.source, 'g'), function (x, at) {
+        return fxRe.test(body.slice(Math.max(0, at - 5), at)) ? x : ' ';
+      }));
+      var tok = toks[j * per], amount = moneyValue_(tok.text), delta;
+      if (type === 'bank') {
+        var bal = moneyValue_(toks[j * per + 1].text);
+        delta = cents_(bal - prev);
+        if (Math.abs(Math.abs(delta) - amount) > 0.005) {
+          lines.problem = 'the running balance does not add up near ' + k.date;
+          return;
+        }
+        prev = bal;
+      } else {
+        delta = /\(|CR\b/.test(tok.text) ? amount : -amount;
+      }
+      found.push({ date: k.date, desc: desc, amount: cents_(amount), delta: cents_(delta) });
+    }
+    found.forEach(function (l) { lines.push(l); });
+    if (type === 'bank') lines.closing = prev;
   });
   return lines;
 }
@@ -164,12 +225,14 @@ function reviewStatement_(text, ctx) {
   var bank = statementBank_(t), type = statementType_(t), end = statementEnd_(t);
   var out = { status: 'read', bank: bank, type: type, account: '', periodFrom: '', periodTo: end ? end.to : '', lines: 0, items: [] };
   if (!end) { out.status = 'unreadable'; return out; }
-  var found = statementAccount_(t, bank, type, ctx.accounts);
+  var found = statementAccount_(t, bank, type, ctx.accounts, type === 'bank' ? statementParts_(statementNoise_(t), bank, type) : []);
   if (!found.account) { out.status = 'no account'; out.last4 = found.last4; return out; }
   var acct = found.account.id;
   out.account = acct;
-  var lines = statementLines_(t, bank, type, end.to);
+  var lines = statementLines_(t, bank, type, end.to, type === 'bank' ? found.last4 : '');
   out.lines = lines.length;
+  out.lineList = lines;
+  if (lines.problem) out.note = lines.problem;
   if (!lines.length) { out.status = 'unreadable'; return out; }
   out.periodFrom = end.from || lines.reduce(function (min, l) { return l.date < min ? l.date : min; }, lines[0].date);
   var items = out.items;
@@ -378,7 +441,7 @@ function saveStatement_(id, r, note) {
     })[0];
     if (dupOf) status = 'duplicate';
     var sh = sheetFor_('Statements');
-    var rec = { id: id, account: r.account, periodFrom: r.periodFrom, periodTo: r.periodTo, lines: r.lines, status: status, note: note || (r.last4 ? 'no account ending ' + r.last4 : ''), checkedAt: new Date() };
+    var rec = { id: id, account: r.account, periodFrom: r.periodFrom, periodTo: r.periodTo, lines: r.lines, status: status, note: note || r.note || (r.last4 ? 'no account ending ' + r.last4 : ''), checkedAt: new Date() };
     sh.getRange(sh.getLastRow() + 1, 1, 1, TABS.Statements.length).setValues([TABS.Statements.map(function (h) { return rec[h]; })]);
     if (status !== 'read' || !r.items.length) return;
     var items = sheetFor_('StatementItems');
