@@ -60,10 +60,16 @@ Pushing a change under `projects/expenses/backend/` to `main` runs the tests, up
 ## Vouchers
 The `Vouchers` tab is created the first time you add a voucher in the app. To change when a voucher counts as due soon, add a row to the Settings tab: `voucherWarnDays` and a number of days (30 if there is no row).
 
+## Statement review
+After the deploy that added it, open the Apps Script editor once, pick `authorizeStatements` and press Run, then allow the new permissions (files this script creates in Drive, and calls to Google's Drive API). Until then the app says statements need permission and everything else works as before.
+
+Optional Settings row: `suspiciousAmount` and a number (200 if there is no row). A first-time merchant at or above it is flagged.
+
 ## Rules tab
 Each row: `pattern` (text the merchant name contains, not case-sensitive; or `re:` followed by a regular expression), then `name`, `category`, `tag`. The first matching row wins.
 
 ## Privacy
 - Bank alerts stay in your Gmail and your sheet.
+- Statement PDFs stay in Gmail. Each is copied to a temporary Google Doc in your Drive to read its text, then deleted. Only the extracted lines go to the sheet.
 - The script only searches for emails from `ibanking.alert@dbs.com` and `unialerts@uobgroup.com`.
 - Google's permission is for your whole mailbox, so read `Code.gs` if you want to check what it does.

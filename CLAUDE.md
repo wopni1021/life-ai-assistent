@@ -8,7 +8,7 @@ Read `README.md` first for the architecture. Then read the `projects/<name>/READ
 - Plain HTML, CSS and JS for the app. No build step or framework unless a project's requirements justify it and the user agrees.
 - Data lives in Google Sheets. An independent project may have its own sheet. Do not invent another kind of data store.
 - AI features must be optional and work without an API key through manual entry or simple parsing.
-- Never ask for or store bank credentials, card numbers or passwords. Keep statements local.
+- Never ask for or store bank credentials, card numbers or passwords. E-statements are read only inside the user's own Google account (her Apps Script); only extracted lines go to the sheet, never to the repo or an outside service.
 - Each minor project has its own requirements. Do not apply one project's assumptions to another.
 - Before writing app or backend code for a project, confirm a short build plan with the user.
 - Pushing to `main` publishes the apps and deploys each backend (`.github/workflows/deploy-<project>.yml`, sharing `deploy-apps-script.yml`). Never commit tokens, web app addresses, deployment ids or `.clasprc.json`. Code changes go in the repo, not the Apps Script website.

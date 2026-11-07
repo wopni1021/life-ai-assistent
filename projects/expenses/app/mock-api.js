@@ -29,6 +29,14 @@
     { id: 'v-5', name: 'Old cinema voucher', amountLeft: 12, expires: dayFrom(-10), note: '', status: 'active' },
     { id: 'v-6', name: 'Finished voucher', amountLeft: 0, expires: dayFrom(40), note: '', status: 'used' }
   ];
+  var statementItems = [
+    { id: 'i1', kind: 'fee', account: 'ocbc-card', accountName: 'OCBC Card', statementDate: '2026-11-01', date: '', description: 'Annual fee on 01 Aug 2027', amount: 4582.18, delta: 0, reason: 'Spend S$4582.18 more by 31 Jul 2027 to have it waived, or ask the bank to waive it.' },
+    { id: 'i2', kind: 'suspicious', account: 'uob-card', accountName: 'UOB Card', statementDate: '2026-11-02', date: '2026-10-28', description: 'TWICE SHOP SINGAPORE', amount: 6, delta: -6, reason: 'Charged 2 times on the same day.' },
+    { id: 'i3', kind: 'missing', account: 'ocbc-card', accountName: 'OCBC Card', statementDate: '2026-11-01', date: '2026-10-03', description: 'SOME CLINIC SINGAPORE', amount: 30, delta: -30, reason: 'On the statement but not in the app.' },
+    { id: 'i4', kind: 'missing', account: 'uob-account', accountName: 'UOB Account', statementDate: '2026-10-31', date: '2026-10-31', description: 'Interest Credit', amount: 7.31, delta: 7.31, reason: 'On the statement but not in the app.' },
+    { id: 'i5', kind: 'balance', account: 'dbs-savings', accountName: 'DBS Savings', statementDate: '2026-10-31', date: '2026-10-31', description: 'Closing balance', amount: 12500, delta: 19.45, reason: 'The statement says S$12500.00; the app had S$12480.55 that day. Add or dismiss those first.' },
+    { id: 'i6', kind: 'unlogged', account: 'uob-card', accountName: 'UOB Card', statementDate: '2026-11-02', date: '2026-10-10', description: 'Ghost Shop', amount: 33, delta: -33, reason: 'In the app but not on this statement. It may be a duplicate or a reversed charge.' }
+  ];
   var categories = ['Dining', 'Groceries', 'Transport', 'Shopping', 'Baby', 'Health', 'Bills', 'Subscriptions', 'Entertainment', 'Household', 'Personal care', 'Other'];
   var MONTH = '2026-10';
   var version = 1;
@@ -71,7 +79,12 @@
       rows: sorted.filter(function (r) { return r.datetime.slice(0, 7) === MONTH || r.status === 'review' || r.status === 'guess' || recent.indexOf(r.id) >= 0; }).map(withEffects),
       recentIds: recent,
       vouchers: vouchers,
-      voucherWarnDays: 30
+      voucherWarnDays: 30,
+      statementItems: statementItems,
+      statements: [
+        { id: 's1', account: 'uob-card', accountName: 'UOB Card', periodTo: '2026-11-02', lines: 42, status: 'read' },
+        { id: 's2', account: 'dbs-savings', accountName: 'DBS Savings', periodTo: '2026-10-31', lines: 0, status: 'unreadable', note: 'no transaction lines found' }
+      ]
     };
   }
   function done(extra) {
@@ -123,6 +136,14 @@
       return done({ id: req.id, amountLeft: u.amountLeft });
     }
     if (a === 'voucherDelete') { vouchers = vouchers.filter(function (x) { return x.id !== req.id; }); return done({ id: req.id }); }
+    if (a === 'statementCheck') return delay({ processed: 0, waiting: 0 });
+    if (a === 'statementItem') {
+      var item = statementItems.filter(function (x) { return x.id === req.id; })[0];
+      statementItems = statementItems.filter(function (x) { return x.id !== req.id; });
+      if (item && req.choice === 'use') accounts.forEach(function (x) { if (x.id === item.account) x.balance = item.amount; });
+      if (item && req.choice === 'add') accounts.forEach(function (x) { if (x.id === item.account) x.balance = round(x.balance + item.delta); });
+      return done({ id: req.id });
+    }
     if (a === 'deleteRow') { tx = tx.filter(function (x) { return x.id !== req.id; }); return done({ id: req.id }); }
     return Promise.reject(new Error('unknown action'));
   };

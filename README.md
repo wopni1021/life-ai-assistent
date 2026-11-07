@@ -44,5 +44,5 @@ At the top level:
 ## Privacy
 
 - Never store bank logins, card numbers or passwords in this folder or the sheet.
-- E-statements stay on this Mac; only the extracted rows go to the sheet.
+- E-statements are read only inside your own Google account by your Apps Script. The PDF stays in Gmail; only the extracted lines go to the sheet. Nothing goes to this repo or an outside service.
 - API keys live in Apps Script properties or a local, untracked file, never in the app source.

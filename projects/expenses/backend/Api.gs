@@ -57,9 +57,10 @@ function handle_(req) {
   var a = req.action;
   if (a === 'sync') return sync_(req);
   if (a === 'list') return list_(req);
+  if (a === 'statementCheck') return checkStatements_();
   var writes = {
     setCategory: setCategory_, addManual: addManual_, setBalance: setBalance_, deleteRow: deleteRow_,
-    voucherSave: voucherSave_, voucherUse: voucherUse_, voucherDelete: voucherDelete_
+    voucherSave: voucherSave_, voucherUse: voucherUse_, voucherDelete: voucherDelete_, statementItem: statementItem_
   };
   if (writes[a]) {
     var lock = LockService.getScriptLock();
@@ -147,6 +148,7 @@ function snapshot_() {
     if (keep[r.id] || monthOf_(r) === month || r.status === 'review') return true;
     return r.status === 'guess' && oldGuesses++ < MAX_OLD_GUESSES;
   }).map(clientRow_);
+  var review = statementSummary_(accounts);
   return {
     version: dataVersion_(),
     balances: balances_(accounts, tx),
@@ -158,7 +160,9 @@ function snapshot_() {
     rows: rows,
     recentIds: recent.map(function (r) { return r.id; }),
     vouchers: loadVouchers_(),
-    voucherWarnDays: voucherWarnDays_()
+    voucherWarnDays: voucherWarnDays_(),
+    statementItems: review.statementItems,
+    statements: review.statements
   };
 }
 
@@ -269,18 +273,21 @@ function addManual_(req) {
   return { id: id };
 }
 
+/** asOf ('yyyy-MM-dd', optional) corrects the balance on that day, for example a statement's closing date. */
 function setBalance_(req) {
   var actual = Number(req.actual);
   if (!isFinite(actual)) throw new Error('enter a number');
   var accounts = loadAccounts_();
   var acct = accounts.filter(function (a) { return a.id === req.account; })[0];
   if (!acct) throw new Error('unknown account');
-  var current = balances_(accounts, loadTx_()).accounts.filter(function (a) { return a.id === acct.id; })[0].balance;
+  var asOf = /^\d{4}-\d{2}-\d{2}$/.test(req.asOf || '') ? req.asOf : '';
+  var tx = loadTx_().filter(function (r) { return !asOf || r.datetime.slice(0, 10) <= asOf; });
+  var current = balances_(accounts, tx).accounts.filter(function (a) { return a.id === acct.id; })[0].balance;
   var diff = Math.round((actual - current) * 100) / 100;
   if (Math.abs(diff) < 0.005) return { change: 0, balance: current };
   var rec = {
-    id: 'm-' + Date.now(), datetime: new Date(), direction: 'adjust', amount: diff, account: acct.id, toAccount: '',
-    merchantRaw: '', merchant: 'Balance correction', category: 'Adjustment', tag: '', note: 'was ' + current + ', set to ' + actual,
+    id: 'm-' + Date.now(), datetime: asOf ? new Date(asOf + 'T23:59:00+08:00') : new Date(), direction: 'adjust', amount: diff, account: acct.id, toAccount: '',
+    merchantRaw: '', merchant: 'Balance correction', category: 'Adjustment', tag: '', note: 'was ' + current + ', set to ' + actual + (asOf ? ' on ' + asOf : ''),
     bank: 'manual', channel: 'manual', ref: '', status: 'ok', createdAt: new Date()
   };
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Transactions');

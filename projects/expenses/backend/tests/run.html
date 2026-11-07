@@ -5,6 +5,7 @@
 <script src="../Parsers.gs"></script>
 <script src="../Ledger.gs"></script>
 <script src="../Vouchers.gs"></script>
+<script src="../Statements.gs"></script>
 <script src="../../app/vouchers.js"></script>
 <script>
 // Samples are rewritten from real alert wording. Names and account numbers are made up.
@@ -241,6 +242,98 @@ cases.forEach(function (c) {
   ];
   eq('pairs: no destination yet, exact match, nothing for other amount or 2 hours apart', pairTransfers_(rows),
     [{ incoming: 1, outgoing: 0, toAccount: 'uob-account' }, { incoming: 3, outgoing: 2, toAccount: '' }]);
+})();
+
+// ---- Statements (made-up text in each bank's layout) ----
+(function () {
+  function eq(name, got, want) {
+    if (JSON.stringify(got) === JSON.stringify(want)) passed++;
+    else fails.push('Statement ' + name + ': expected ' + JSON.stringify(want) + ' got ' + JSON.stringify(got));
+  }
+  var accts = [
+    { id: 'dbs', name: 'DBS', type: 'bank', bank: 'DBS', last4: '1111', openingBalance: 0 },
+    { id: 'uob-acct', name: 'UOB Account', type: 'bank', bank: 'UOB', last4: '3332', openingBalance: 0 },
+    { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', last4: '3333', openingBalance: 0 },
+    { id: 'ocbc-360', name: 'OCBC 360', type: 'bank', bank: 'OCBC', last4: '6666', openingBalance: 0 },
+    { id: 'ocbc-card', name: 'OCBC Card', type: 'card', bank: 'OCBC', last4: 7777, openingBalance: 0 }
+  ];
+  function kinds(r) { var c = {}; r.items.forEach(function (i) { c[i.kind] = (c[i.kind] || 0) + 1; }); return c; }
+  function of(r, kind) { return r.items.filter(function (i) { return i.kind === kind; }).map(function (i) { return i.description + ' ' + i.amount; }); }
+
+  eq('subjects', ['e', 'E', ' e ', 'Re: e', 'estatement', 'Hello', ''].map(isStatementSubject_), [true, true, true, false, false, false, false]);
+
+  var ocbc360 = 'Oversea-Chinese Banking Corporation Limited\nSTATEMENT OF ACCOUNT\n360 ACCOUNT\nAccount No. 000000006666\n1 OCT 2026 TO 31 OCT 2026\n' +
+    'Transaction Date Value Date Description Cheque Withdrawal Deposit Balance\nBALANCE B/F 1,000.00\n' +
+    '03 OCT 03 OCT PAYMENT/TRANSFER 2,000.00 3,000.00\nDBSS\nfrom JANE TAN\nOTHR Transfer\n' +
+    '09 OCT 09 OCT BONUS INTEREST 10.00 3,010.00\n360 SALARY BONUS\n' +
+    '23 OCT 23 OCT GIRO 184.28 2,825.72\nCOLL 1\nCR CARD RECEIVABLE\n' +
+    '25 OCT 25 OCT SERVICE CHARGE 2.00 2,823.72\nFALL BELOW\n' +
+    '29 OCT 29 OCT IBG GIRO 500.00 3,323.72\nSALA\nSOME EMPLOYER\n' +
+    'BALANCE C/F 3,323.72\nTotal Withdrawals/Deposits 186.28 2,510.00\n' +
+    'Interest Charges - a late payment charge of S$100 and an INTEREST CHARGE apply if unpaid.';
+  var r1 = reviewStatement_(ocbc360, { accounts: accts, rows: [
+    { id: 't1', datetime: '2026-10-02T10:00:00', direction: 'transfer', amount: 2000, account: 'dbs', toAccount: 'ocbc-360', merchantRaw: 'JANE TAN', status: 'ok' }
+  ] });
+  eq('OCBC 360: read', [r1.status, r1.bank, r1.type, r1.account, r1.periodFrom, r1.periodTo, r1.lines], ['read', 'OCBC', 'bank', 'ocbc-360', '2026-10-01', '2026-10-31', 5]);
+  eq('OCBC 360: signs from the running balance', of(r1, 'missing'), ['BONUS INTEREST 360 SALARY BONUS 10', 'GIRO COLL 1 CR CARD RECEIVABLE 184.28', 'SERVICE CHARGE FALL BELOW 2', 'IBG GIRO SALA SOME EMPLOYER 500']);
+  eq('OCBC 360: fee from the lines, not the printed terms', of(r1, 'fee'), ['SERVICE CHARGE FALL BELOW 2']);
+  eq('OCBC 360: balance gap beyond the missing entries', r1.items.filter(function (i) { return i.kind === 'balance'; }).map(function (i) { return [i.amount, i.delta]; }), [[3323.72, 1000]]);
+
+  var uobCard = 'United Overseas Bank Limited\nStatement Summary\nStatement Date 02 NOV 2026\nUOB ONE CARD 1111-2222-3333-3333 JANE TAN\n' +
+    'Post Date Trans Date Description of Transaction Transaction Amount SGD\nPREVIOUS BALANCE 100.00\n' +
+    '05 OCT 25 SEP KOPI SHOP -SINGAPORE\nRef No. : 74500000000000000000001\n14.95 CR\n' +
+    '23 OCT 23 OCT GIRO PAYMENT 100.00 CR\n' +
+    '03 OCT 25 SEP KOPI SHOP -SINGAPORE\nRef No. : 74500000000000000000002\n14.95\n' +
+    '03 OCT 25 SEP KOPI SHOP -SINGAPORE\nRef No. : 74500000000000000000003\n14.95\n' +
+    'Page 2 of 6 Please note ... Co. Reg. No. 193500026Z\nUOB ONE CARD 1111-2222-3333-3333 JANE TAN (continued)\n' +
+    '20 OCT 18 OCT NOODLE HOUSE SINGAPORE\nRef No. : 1\n8.50\n' +
+    '22 OCT 20 OCT NOODLE HOUSE SINGAPORE\nRef No. : 2\n8.50\n' +
+    '24 OCT 22 OCT TOKYO SHOP TOKYO JPY 1,000.00\nRef No. : 3\n9.10\n' +
+    '30 OCT 28 OCT TWICE SHOP SINGAPORE\nRef No. : 4\n6.00\n' +
+    '30 OCT 28 OCT TWICE SHOP SINGAPORE\nRef No. : 5\n6.00\n' +
+    '31 OCT 29 OCT ANNUAL FEE 196.20\n' +
+    '01 NOV 30 OCT BIG STORE SINGAPORE\nRef No. : 6\n450.00\n' +
+    'SUB TOTAL 711.00\nTOTAL BALANCE FOR UOB ONE CARD 711.00';
+  var r2 = reviewStatement_(uobCard, { accounts: accts, rows: [
+    { id: 'a', datetime: '2026-09-20T10:00:00', direction: 'out', amount: 5, account: 'uob-card', merchantRaw: 'OLD SHOP', status: 'ok' },
+    { id: 'b', datetime: '2026-10-22T21:00:00', direction: 'card_payment', amount: 100, account: 'uob-acct', toAccount: 'uob-card', merchantRaw: 'UOB Card', status: 'ok' },
+    { id: 'c', datetime: '2026-10-18T12:00:00', direction: 'out', amount: 8.5, account: 'uob-card', merchantRaw: 'NOODLE HOUSE', status: 'ok' },
+    { id: 'd', datetime: '2026-10-10T12:00:00', direction: 'out', amount: 33, account: 'uob-card', merchantRaw: 'GHOST', merchant: 'Ghost', status: 'ok' },
+    { id: 'e', datetime: '2026-10-30T12:00:00', direction: 'out', amount: 4, account: 'uob-card', merchantRaw: 'LATE', status: 'ok' }
+  ], suspiciousAmount: 200 });
+  eq('UOB card: read', [r2.status, r2.bank, r2.type, r2.account, r2.periodTo, r2.lines], ['read', 'UOB', 'card', 'uob-card', '2026-11-02', 11]);
+  eq('UOB card: purchase date, credit sign', [r2.items.filter(function (i) { return i.kind === 'missing'; })[0].date, r2.items.filter(function (i) { return i.kind === 'missing'; })[0].delta], ['2026-09-25', 14.95]);
+  eq('UOB card: what needs attention', kinds(r2), { fee: 1, suspicious: 3, missing: 9, unlogged: 1 });
+  eq('UOB card: suspicious reasons', r2.items.filter(function (i) { return i.kind === 'suspicious'; }).map(function (i) { return i.description.split(' ')[0] + ': ' + i.reason.split('.')[0]; }),
+    ['TWICE: Charged 2 times on the same day', 'TOKYO: Charged in a foreign currency', 'BIG: First time at this merchant, and over S$200']);
+  eq('UOB card: foreign line keeps the SGD amount', r2.items.filter(function (i) { return /TOKYO/.test(i.description) && i.kind === 'missing'; })[0].amount, 9.1);
+  eq('UOB card: logged but not on the statement', of(r2, 'unlogged'), ['Ghost 33']);
+
+  var ocbcCard = 'Oversea-Chinese Banking Corporation Limited\nSTATEMENT DATE PAYMENT DUE DATE TOTAL CREDIT LIMIT TOTAL AVAILABLE CREDIT LIMIT TOTAL MINIMUM DUE\n01-11-2026 24-11-2026 S$10,000 S$9,850.00 S$50.00\n' +
+    'TRANSACTION DATE DESCRIPTION AMOUNT (SGD)\nOCBC 90.N VISA CARD\nJANE TAN 1234-5678-0000-7777\nLAST MONTH\'S BALANCE 50.00\n' +
+    '23/10 PAYMENT BY GIRO (50.00)\n03/10 SOME CLINIC (ANG MO KIO SINGAPORE SG 30.00\n31/10 -5720 SHOP SINGAPORE SINGAPORE SG 120.00\nSUBTOTAL 150.00\nTOTAL 150.00\n' +
+    'How to get your annual fee(s) automatically waived S$5,417.82 As of 01 Nov 2026 1234 5678 0000 7777 S$4,582.18By 31 Jul 2027 01 Aug 2027\n' +
+    'Late payment charges - a late payment charge of S$100 will be charged.';
+  var r3 = reviewStatement_(ocbcCard, { accounts: accts, rows: [] });
+  eq('OCBC card: read', [r3.status, r3.type, r3.account, r3.periodTo, r3.lines], ['read', 'card', 'ocbc-card', '2026-11-01', 3]);
+  eq('OCBC card: with no alerts, every line is missing', of(r3, 'missing'), ['PAYMENT BY GIRO 50', 'SOME CLINIC (ANG MO KIO SINGAPORE SG 30', '-5720 SHOP SINGAPORE SINGAPORE SG 120']);
+  eq('OCBC card: payment is a credit', r3.items[1] ? r3.items.filter(function (i) { return i.kind === 'missing'; })[0].delta : null, 50);
+  eq('OCBC card: annual fee waiver notice', of(r3, 'fee'), ['Annual fee on 01 Aug 2027 4582.18']);
+
+  var uobAcct = 'United Overseas Bank Limited\nStatement of Account\nPeriod: 01 Oct 2026 to 31 Oct 2026\nOne Account\n111-222-333-2\nLocked Amount is 1.00\n' +
+    'Account Transaction Details One Account 111-222-333-2 Date Description Withdrawals SGD Deposits SGD Balance SGD\n' +
+    '01 Oct BALANCE B/F 1,000.00\n02 Oct One Bonus Interest 10.00 1,010.00\n06 Oct Inward DR - GIRO\nTAXS X\nIRAS\nIncome Tax\n100.00 910.00\n' +
+    '26 Oct Misc Credit\nA1\n5.00 915.00\n31 Oct Interest Credit 1.00 916.00\nTotal 100.00 16.00 916.00\n--- End of Transaction Details ---\n' +
+    'Page 3 of 3 USD US DOLLAR 1 1.2652 JPY JAPANESE YEN 100 0.7952';
+  var r4 = reviewStatement_(uobAcct, { accounts: accts, rows: [
+    { id: 'f', datetime: '2026-10-07T09:00:00', direction: 'out', amount: 100, account: 'uob-acct', merchantRaw: 'IRAS', status: 'ok' },
+    { id: 'g', datetime: '2026-10-30T09:00:00', direction: 'adjust', amount: 1015, account: 'uob-acct', status: 'ok' }
+  ] });
+  eq('UOB account: read', [r4.status, r4.type, r4.account, r4.periodTo, r4.lines], ['read', 'bank', 'uob-acct', '2026-10-31', 4]);
+  eq('UOB account: before tracking and before a correction is not missing; balance agrees', r4.items.map(function (i) { return i.kind + ' ' + i.description + ' ' + i.amount; }), ['missing Interest Credit 1']);
+
+  eq('unknown text', reviewStatement_('Hello there', { accounts: accts, rows: [] }).status, 'unreadable');
+  eq('no matching account', reviewStatement_(ocbc360.replace('000000006666', '000000009999'), { accounts: accts, rows: [] }).status, 'no account');
 })();
 
 // ---- Vouchers ----

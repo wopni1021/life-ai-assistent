@@ -37,6 +37,7 @@
   var syncing = null, syncProblem = '', lastSyncMs = null;
   var lastSyncAt = Number(store.get('le_synced')) || 0;
   var pending = 0, writeQueue = Promise.resolve();
+  var reviewing = false, lastStatementCheck = 0, statementProblem = '';
 
   /* ---------- helpers ---------- */
   function fmt(n) {
@@ -123,7 +124,7 @@
     nav.hidden = !(cfg.token && (cfg.token === 'demo' || cfg.url));
   }
   function setTab(t) {
-    state.tab = t; state.account = null; store.set('le_tab', t);
+    state.tab = t; state.account = null; state.review = false; store.set('le_tab', t);
     buildTabs(); render(); window.scrollTo(0, 0);
   }
   function connected() { return !!(cfg.token && (cfg.token === 'demo' || cfg.url)); }
@@ -131,6 +132,7 @@
     if (!connected()) return renderSetup();
     $('#tabs').hidden = false;
     if (!db) { loading(); sync(true); return; }
+    if (state.tab === 'home' && state.review) return renderReview();
     if (state.tab === 'home' && state.account) return renderTxns(state.account);
     ({ home: renderHome, txns: function () { renderTxns(null); }, vouchers: renderVouchers, add: renderAdd })[state.tab]();
   }
@@ -147,6 +149,7 @@
     var el = $('#sync-status');
     if (!connected()) { el.textContent = ''; return; }
     if (syncing) el.textContent = 'Updating...';
+    else if (reviewing) el.textContent = 'Reviewing statements...';
     else if (syncProblem) el.textContent = syncProblem;
     else el.textContent = lastSyncAt ? 'Updated ' + sinceText(lastSyncAt) : '';
   }
@@ -175,9 +178,28 @@
       syncProblem = 'Could not update. Showing saved data.';
       syncing = null;
       if (!db || /unauthorized|too many/.test(e.message || '')) failed(e);
-    }).then(function () { syncing = null; setStatus(); });
+    }).then(function () { syncing = null; setStatus(); checkStatements(); });
     setStatus();
     return syncing;
+  }
+  /**
+   * Statements are read in a separate request after the numbers have loaded, so they never slow the app down.
+   * At most every two minutes; sooner when some were left for later.
+   */
+  function checkStatements() {
+    if (reviewing || !connected() || !db || Date.now() - lastStatementCheck < 120000) return;
+    reviewing = true; lastStatementCheck = Date.now(); setStatus();
+    api('statementCheck').then(function (r) {
+      statementProblem = '';
+      if (r.waiting) lastStatementCheck = 0;
+      if (r.processed) {
+        toast(r.processed === 1 ? 'Statement reviewed' : r.processed + ' statements reviewed');
+        reviewing = false;
+        sync(true);
+      }
+    }).catch(function (e) {
+      statementProblem = e && e.message ? e.message : 'Could not check statements';
+    }).then(function () { reviewing = false; setStatus(); });
   }
   /**
    * Shows a change straight away, then sends it in the background, one at a time.
@@ -261,6 +283,8 @@
     var out = [];
     var banner = voucherBanner();
     if (banner) out.push(banner);
+    var review = statementBanner();
+    if (review) out.push(review);
     out.push(h('div', { class: 'card hero' },
       h('div', { class: 'label' }, 'Total money'),
       h('div', { class: 'big num' }, fmt(b.totalMoney)),
@@ -491,11 +515,13 @@
     function chip(id, label) {
       return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(state.filter === id), onclick: function () { state.filter = id; render(); } }, label);
     }
+    var toReview = (db.statementItems || []).length;
+    var reviewLink = !accountId && toReview ? h('button', { class: 'notice info review-link', onclick: openReview }, 'Statement review: ' + toReview + (toReview === 1 ? ' item' : ' items') + ' \u2192') : null;
     var chips = (!accountId && (guesses || attention)) ? h('div', { class: 'chips filters' }, chip('all', 'All'),
       guesses ? chip('guess', 'Unsorted (' + guesses + ')') : null,
       attention ? chip('review', 'Needs attention (' + attention + ')') : null) : null;
     monthSel.hidden = state.filter !== 'all';
-    show(h('div', null, account ? accountHeader(account) : null, chips, h('div', { class: 'controls' }, monthSel, search), listBox));
+    show(h('div', null, account ? accountHeader(account) : null, reviewLink, chips, h('div', { class: 'controls' }, monthSel, search), listBox));
 
     function matches(r) {
       if (accountId && r.account !== accountId && r.toAccount !== accountId) return false;
@@ -534,6 +560,70 @@
     function close() { overlay.remove(); }
     overlay.append(h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, h('div', { class: 'grab' }), editor(row, { onClose: close })));
     document.body.append(overlay);
+  }
+
+  /* ---------- statement review ---------- */
+  var WARNING_KINDS = ['fee', 'suspicious', 'balance'];
+  function openReview() { state.tab = 'home'; state.account = null; state.review = true; store.set('le_tab', 'home'); buildTabs(); render(); window.scrollTo(0, 0); }
+  function statementBanner() {
+    var items = db.statementItems || [];
+    var warnings = items.filter(function (i) { return WARNING_KINDS.indexOf(i.kind) >= 0; });
+    var missing = items.filter(function (i) { return i.kind === 'missing'; }).length;
+    if (!warnings.length && !missing) return statementProblem ? h('div', { class: 'notice' }, statementProblem) : null;
+    var lines = warnings.slice(0, 3).map(function (i) {
+      return h('div', { class: 'line' }, i.description + (i.accountName ? ' \u00b7 ' + i.accountName : ''));
+    });
+    if (warnings.length > 3) lines.push(h('div', { class: 'line' }, '+' + (warnings.length - 3) + ' more'));
+    if (missing) lines.push(h('div', { class: 'line' }, missing + (missing === 1 ? ' statement entry is' : ' statement entries are') + ' not in the app'));
+    return h('button', { class: 'vbanner' + (warnings.length ? ' urgent' : ''), onclick: openReview },
+      h('div', { class: 'head' }, warnings.length ? 'Statement review: ' + warnings.length + ' to check' : 'Statement review'), lines);
+  }
+  function resolveItem(it, action) {
+    mutate('statementItem', { id: it.id, choice: action }, function () {
+      db.statementItems = (db.statementItems || []).filter(function (x) { return x.id !== it.id; });
+      if (action === 'add') moveBalance(it.account, it.delta);
+    });
+    toast(action === 'dismiss' ? 'Dismissed' : action === 'use' ? 'Balance updated' : 'Added');
+  }
+  function reviewRow(it) {
+    var sign = it.delta > 0 ? '+' : it.delta < 0 ? '\u2212' : '';
+    var showAmount = it.kind !== 'fee' || it.date;
+    var where = [it.date ? fullDate(it.date) : '', it.accountName, it.statementDate ? 'statement ' + fullDate(it.statementDate) : ''].filter(Boolean).join(' \u00b7 ');
+    var actions = h('div', { class: 'stmt-actions' },
+      it.kind === 'missing' ? h('button', { class: 'btn small', onclick: function () { resolveItem(it, 'add'); } }, 'Add to the app') : null,
+      it.kind === 'balance' ? h('button', { class: 'btn small', onclick: function () { resolveItem(it, 'use'); } }, 'Use statement balance') : null,
+      h('button', { class: 'btn ghost small', onclick: function () { resolveItem(it, 'dismiss'); } }, 'Dismiss'));
+    return h('div', { class: 'stmt-item' + (WARNING_KINDS.indexOf(it.kind) >= 0 ? ' warn' : '') },
+      h('div', { class: 'top' }, h('div', { class: 'title' }, it.description),
+        showAmount ? h('div', { class: 'amt num' + (it.delta > 0 ? ' in' : '') }, it.kind === 'balance' ? fmt(it.amount) : sign + fmt(Math.abs(it.delta || it.amount))) : null),
+      where ? h('div', { class: 'small muted' }, where) : null,
+      h('div', { class: 'small' }, it.reason),
+      actions);
+  }
+  function renderReview() {
+    var items = db.statementItems || [];
+    var groups = [['Warnings', ['fee', 'suspicious']], ['Balance', ['balance']], ['Not in the app', ['missing']], ['In the app, not on the statement', ['unlogged']]];
+    var out = [h('div', { class: 'card acct-head' },
+      h('button', { class: 'back', onclick: function () { state.review = false; render(); window.scrollTo(0, 0); } }, '\u2190 Home'),
+      h('div', { class: 'label' }, 'Statement review'),
+      h('div', { class: 'small muted' }, items.length ? items.length + (items.length === 1 ? ' item to look at.' : ' items to look at.') + ' Add what is missing, dismiss what is fine.'
+        : 'Nothing to review. Send a statement PDF to yourself with the subject e, then open the app.'))];
+    if (statementProblem) out.push(h('div', { class: 'notice' }, statementProblem));
+    groups.forEach(function (g) {
+      var list = items.filter(function (i) { return g[1].indexOf(i.kind) >= 0; });
+      if (!list.length) return;
+      out.push(h('div', null, h('div', { class: 'section-head' }, h('h2', null, g[0]), h('span', { class: 'small muted' }, String(list.length))),
+        h('div', { style: 'height:8px' }), h('div', { class: 'card list' }, list.map(reviewRow))));
+    });
+    var statements = db.statements || [];
+    if (statements.length) {
+      out.push(h('details', { class: 'vfold' }, h('summary', null, 'Statements read (' + statements.length + ')'),
+        h('div', { class: 'card list' }, statements.map(function (s) {
+          var label = s.status === 'read' ? s.lines + ' lines read' : s.status === 'duplicate' ? 'already reviewed' : s.status === 'no account' ? 'account not set up' + (s.note ? ' (' + s.note + ')' : '') : 'could not read it' + (s.note ? ': ' + s.note : '');
+          return h('div', { class: 'tx' }, h('div', { class: 'm' }, h('div', { class: 'title' }, s.accountName || 'Unknown account'), h('div', { class: 'small muted' }, (s.periodTo ? fullDate(s.periodTo) + ' \u00b7 ' : '') + label)));
+        }))));
+    }
+    show(h('div', { class: 'stack' }, out));
   }
 
   /* ---------- vouchers ---------- */

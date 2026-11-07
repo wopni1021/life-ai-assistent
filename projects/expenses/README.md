@@ -1,8 +1,8 @@
 # Expense tracker
 
-Status: DBS and UOB reader and phone app (Home, Activity, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. OCBC reader still to do. Tests: 42 pass in `projects/expenses/backend/tests/run.html`.
+Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 104 pass in `projects/expenses/backend/tests/run.html`.
 
-Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`. The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
+Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`, `statementCheck` (reads new statement emails, returns `{processed, waiting}`), `statementItem` (`{id, choice: add | use | dismiss}`). The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
 Repo: https://github.com/wopni1021/life-ai-assistent (public; never commit personal data).
 Reader code: `projects/expenses/backend/` (setup steps in `SETUP.md`).
@@ -80,6 +80,15 @@ Sender `notifications@ocbc.com` also sends offers and statements; only payment e
 - Tracks how much is left on each dollar-value voucher and when it expires. Tab `Vouchers`: `id, name, amountLeft, expires, note, status, createdAt`. `status` is `active` or `used`. Not counted in Total money.
 - Due soon means within `voucherWarnDays` (Settings tab, default 30). Red at 7 days or fewer, amber before that. Shown as a banner at the top of Home and a count on the Vouchers tab. Worked out on the phone from today's date.
 - In-app warning only, so a voucher can expire unseen if the app isn't opened. Using a voucher is entered by hand and keeps no history.
+
+## Statement review (added 2026-11-07)
+- Send a statement PDF from the bank app to yourself with the subject `e` (or `E`). No password on the PDF.
+- After the app loads, it sends a separate `statementCheck` request, so balances load as fast as before. The header shows "Reviewing statements..." while it runs. It reads every new statement (up to 4 minutes; anything left waits for the next open) and refreshes when done. At most every 2 minutes.
+- The PDF is turned into text through a temporary Google Doc in your Drive, deleted at once. Only the lines it finds go to the sheet: tabs `Statements` and `StatementItems`.
+- Home shows a red banner for fees (annual fee, finance charge, late fee and similar, often waivable) and suspicious lines (same charge twice in a day, foreign currency, a new merchant at or above `suspiciousAmount` in Settings, default 200). It also says how many statement lines are not in the app.
+- The review screen (from the banner or Activity) groups Warnings, Balance (bank accounts: statement closing balance vs the app), Not in the app (Add), and In the app, not on the statement. Each can be dismissed.
+- A statement line matches a logged entry with the same amount within 3 days. Lines before an account's first logged entry, or before a balance correction, are not counted as missing.
+- Readers built from real samples: OCBC 360, OCBC card, UOB account, UOB card. DBS uses a generic reader until a sample is seen. A statement that yields no lines shows "could not read it".
 
 ## Sharing
 Only the user.

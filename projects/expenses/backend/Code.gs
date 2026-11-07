@@ -10,7 +10,9 @@ var TABS = {
   Settings: ['key', 'value'],
   Unparsed: ['id', 'datetime', 'from', 'subject', 'snippet'],
   Seen: ['id', 'seenAt'],
-  Vouchers: ['id', 'name', 'amountLeft', 'expires', 'note', 'status', 'createdAt']
+  Vouchers: ['id', 'name', 'amountLeft', 'expires', 'note', 'status', 'createdAt'],
+  Statements: ['id', 'account', 'periodFrom', 'periodTo', 'lines', 'status', 'note', 'checkedAt'],
+  StatementItems: ['id', 'statementId', 'account', 'kind', 'date', 'description', 'amount', 'delta', 'reason', 'state', 'txId']
 };
 
 var ALERT_SENDERS = 'from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com OR notifications@ocbc.com)';
