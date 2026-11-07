@@ -262,13 +262,29 @@ function authorizeStatements() {
   });
   var msg = res.getResponseCode() < 300
     ? 'Statement review is ready. Send a statement to yourself with the subject e, then open the app.'
-    : 'Drive did not answer (' + res.getResponseCode() + '). Try again in a minute.';
+    : 'Drive said no (' + res.getResponseCode() + ': ' + driveReason_(res) + ').';
   // Run from the editor there is no sheet window to show a box in, so the message goes to the log.
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
 }
 
 /** The PDF's text, through a temporary Google Doc copy that is deleted straight after. */
+/** Google's short reason for a refused Drive call, such as accessNotConfigured. */
+function driveReason_(res) {
+  try {
+    var e = JSON.parse(res.getContentText()).error;
+    return ((e.errors && e.errors[0] && e.errors[0].reason) || e.status || '') + ' ' + String(e.message || '').slice(0, 160);
+  } catch (err) { return String(res.getContentText()).slice(0, 160); }
+}
+
+/** A refused Drive call (no permission, API off) is not the statement's fault, so the email is tried again later. */
+function driveError_(what, res) {
+  var code = res.getResponseCode();
+  var err = new Error(what + ' (' + code + ': ' + driveReason_(res) + ')');
+  if (code === 401 || code === 403) err.retryLater = true;
+  return err;
+}
+
 function pdfText_(blob) {
   var auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
   var boundary = 'b' + Utilities.getUuid().replace(/-/g, '');
@@ -280,11 +296,11 @@ function pdfText_(blob) {
     method: 'post', contentType: 'multipart/related; boundary=' + boundary,
     payload: head.concat(blob.getBytes()).concat(tail), headers: auth, muteHttpExceptions: true
   });
-  if (up.getResponseCode() >= 300) throw new Error('could not convert the PDF (' + up.getResponseCode() + ')');
+  if (up.getResponseCode() >= 300) throw driveError_('could not convert the PDF', up);
   var id = JSON.parse(up.getContentText()).id;
   try {
     var ex = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text/plain', { headers: auth, muteHttpExceptions: true });
-    if (ex.getResponseCode() >= 300) throw new Error('could not read the converted statement (' + ex.getResponseCode() + ')');
+    if (ex.getResponseCode() >= 300) throw driveError_('could not read the converted statement', ex);
     return ex.getContentText();
   } finally {
     UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id, { method: 'delete', headers: auth, muteHttpExceptions: true });
@@ -333,7 +349,7 @@ function checkStatements_() {
       catch (err) {
         note = String(err && err.message || err).slice(0, 120);
         // Without the Drive permission nothing can be read yet; leave the email for the next try.
-        if (/permission|authori[sz]/i.test(note)) throw new Error('Statements need permission: run authorizeStatements in Apps Script');
+        if (err && err.retryLater || /permission|authori[sz]/i.test(note)) throw new Error('Statements could not be read yet: ' + note);
         r = { status: 'unreadable', account: '', periodFrom: '', periodTo: '', lines: 0, items: [] };
       }
       saveStatement_(todo[i].id, r, note);
