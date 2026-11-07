@@ -96,6 +96,17 @@ var cases = [
   ['每天喂维生素', { repeat: '1d', due: '2026-11-01' }],
   ['每月1号转账给房东', { text: '转账给房东', repeat: 'm1', due: '2026-11-01', group: '手机办' }],
   ['每周打扫卫生', { text: '打扫卫生', repeat: '1w', due: '2026-11-07', group: '在家做' }],
+  ['每1.5个月给车打气', { text: '给车打气', repeat: '1.5m', due: '2026-11-07' }],
+  ['每一个半月给车打气', { text: '给车打气', repeat: '1.5m' }],
+  ['每两个半月换滤芯', { text: '换滤芯', repeat: '2.5m' }],
+  ['每隔一个半月洗车', { text: '洗车', repeat: '1.5m' }],
+  ['每半个月买尿布', { text: '买尿布', repeat: '2w' }],
+  ['每半年洗牙', { text: '洗牙', repeat: '6m' }],
+  ['每年续保险', { text: '续保险', repeat: '12m' }],
+  ['每六周理发', { text: '理发', repeat: '6w' }],
+  ['每45天换牙刷', { text: '换牙刷', repeat: '45d' }],
+  ['change the filter every 1.5 months', { text: 'change the filter', repeat: '1.5m' }],
+  ['get a haircut every six weeks', { text: 'get a haircut', repeat: '6w' }],
 
   // English.
   ['buy diapers tomorrow', { text: 'buy diapers', due: '2026-11-01', group: '买东西' }],
@@ -123,6 +134,16 @@ ok('next 2w', { v: nextRepeat('2w', TODO) }, { v: '2026-11-14' });
 ok('next w3 on a Wednesday', { v: nextRepeat('w3', '2026-11-04') }, { v: '2026-11-11' });
 ok('next m1 on the 1st', { v: nextRepeat('m1', '2026-11-01') }, { v: '2026-12-01' });
 ok('labels', { a: repeatLabel('1m'), b: repeatLabel('2w'), c: repeatLabel('w3'), d: repeatLabel('m5') }, { a: '每月', b: '每2周', c: '每周三', d: '每月5号' });
+ok('decimal labels', { a: repeatLabel('1.5m'), b: repeatLabel('6w'), c: repeatLabel('45d') }, { a: '每1.5个月', b: '每6周', c: '每45天' });
+ok('next 1.5m', { v: nextRepeat('1.5m', '2026-01-31') }, { v: '2026-03-15' });
+ok('next 1.5m mid-month', { v: nextRepeat('1.5m', TODO) }, { v: '2026-12-15' });
+ok('next 1.5w', { v: nextRepeat('1.5w', TODO) }, { v: '2026-11-11' });
+ok('next 6w', { v: nextRepeat('6w', TODO) }, { v: '2026-12-12' });
+ok('next 1m unchanged', { v: nextRepeat('1m', TODO) }, { v: '2026-11-30' });
+ok('lead', { d: repeatLead('1d'), w: repeatLead('1w'), w2: repeatLead('2w'), m: repeatLead('1m'), m15: repeatLead('1.5m'), y: repeatLead('12m'), wd: repeatLead('w3'), md: repeatLead('m5') },
+  { d: 0, w: 1, w2: 3, m: 6, m15: 7, y: 7, wd: 1, md: 6 });
+ok('isRepeat', { a: isRepeat('1.5m'), b: isRepeat('0m'), c: isRepeat('-1d'), d: isRepeat('400m'), e: isRepeat('12m'), f: isRepeat('366d'), g: isRepeat('w3'), h: isRepeat('m31'), i: isRepeat('1.5'), j: isRepeat('') },
+  { a: true, b: false, c: false, d: false, e: true, f: true, g: true, h: true, i: false, j: false });
 
 // When AI is called.
 function ai(s) { return needsAi_(s, parseTodo(s, TODO)); }
@@ -149,6 +170,8 @@ var msg = pushMessage_([t('买维生素D', '2026-10-29'), t('车保养', TODO), 
 ok('push title', msg, { title: '今天 2 件 · 过期 1 件' });
 ok('push body', msg, { body: '昨天完成 1 件 👏\n⚠️ 买维生素D（过期2天）\n车保养\n转账\n这周还有 1 件' });
 ok('nothing due sends nothing', { v: pushMessage_([t('以后', '2026-12-01')], TODO) }, { v: null });
+var waitingTask = t('打气', '2026-11-05'); waitingTask.showFrom = '2026-11-03';
+ok('waiting tasks are not counted', { v: pushMessage_([t('转账', TODO), waitingTask, t('报销', '2026-11-01')], TODO).body }, { v: '转账\n这周还有 1 件' });
 var many = [1, 2, 3, 4, 5, 6, 7].map(function (n) { return t('事' + n, TODO); });
 ok('push is capped', { v: pushMessage_(many, TODO).body.split('\n').length }, { v: 6 });
 

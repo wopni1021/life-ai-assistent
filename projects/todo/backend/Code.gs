@@ -5,7 +5,7 @@
  */
 
 var TZ = 'Asia/Singapore';
-var TODO_HEAD = ['id', 'text', 'due', 'group', 'repeat', 'status', 'raw', 'createdAt', 'doneAt'];
+var TODO_HEAD = ['id', 'text', 'due', 'group', 'repeat', 'status', 'raw', 'createdAt', 'doneAt', 'showFrom'];
 var DONE_KEEP_DAYS = 30;
 var MAX_BAD_TOKENS_PER_HOUR = 20;
 
@@ -84,7 +84,19 @@ function withLock_(fn) {
 
 /* ---------- sheet ---------- */
 
-function sheet_() { return SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Todos'); }
+var headerChecked_ = false;
+function sheet_() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Todos');
+  if (!headerChecked_) {
+    headerChecked_ = true;
+    ensureHeader_(sh);
+  }
+  return sh;
+}
+/** A sheet made before a column was added gets its title, so a deploy needs no manual step. */
+function ensureHeader_(sh) {
+  if (!sh.getRange(1, TODO_HEAD.length).getValue()) sh.getRange(1, 1, 1, TODO_HEAD.length).setValues([TODO_HEAD]);
+}
 function todayStr_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
 function nowStr_() { return Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd'T'HH:mm:ss"); }
 function cellStr_(v, format) { return v instanceof Date ? Utilities.formatDate(v, TZ, format) : String(v || ''); }
@@ -101,6 +113,7 @@ function loadTodos_() {
     o.due = cellStr_(o.due, 'yyyy-MM-dd');
     o.createdAt = cellStr_(o.createdAt, "yyyy-MM-dd'T'HH:mm:ss");
     o.doneAt = cellStr_(o.doneAt, "yyyy-MM-dd'T'HH:mm:ss");
+    o.showFrom = cellStr_(o.showFrom, 'yyyy-MM-dd');
     return o;
   });
 }
@@ -117,6 +130,7 @@ function readRow_(row) {
   var vals = sheet_().getRange(row, 1, 1, TODO_HEAD.length).getValues()[0], rec = {};
   TODO_HEAD.forEach(function (h, i) { rec[h] = vals[i]; });
   rec.due = cellStr_(rec.due, 'yyyy-MM-dd');
+  rec.showFrom = cellStr_(rec.showFrom, 'yyyy-MM-dd');
   return rec;
 }
 
@@ -198,6 +212,8 @@ function todoUpdate_(req) {
   if (req.text !== undefined) rec.text = text_(req.text, 200);
   if (req.due !== undefined) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(req.due)) throw new Error('bad date');
+    // A date you set yourself shows the task now, even a round that was waiting.
+    if (req.due !== rec.due) rec.showFrom = '';
     rec.due = req.due;
   }
   if (req.group !== undefined) {
@@ -212,7 +228,8 @@ function todoUpdate_(req) {
     rec.status = 'done';
     rec.doneAt = /^\d{4}-\d{2}-\d{2}T[\d:]{8}$/.test(req.doneAt || '') ? req.doneAt : nowStr_();
     if (rec.repeat && req.nextId && !rowOf_(req.nextId)) {
-      appendRow_({ id: text_(req.nextId, 60), text: rec.text, due: nextRepeat(rec.repeat, rec.doneAt.slice(0, 10)), group: rec.group, repeat: rec.repeat, status: 'open', raw: rec.raw, createdAt: nowStr_(), doneAt: '' });
+      var nextDue = nextRepeat(rec.repeat, rec.doneAt.slice(0, 10));
+      appendRow_({ id: text_(req.nextId, 60), text: rec.text, due: nextDue, group: rec.group, repeat: rec.repeat, status: 'open', raw: rec.raw, createdAt: nowStr_(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(rec.repeat)) });
     }
   } else if (req.status === 'open') {
     rec.status = 'open';

@@ -42,11 +42,12 @@
       if (!t) return Promise.reject(new Error('not found'));
       if (req.remove) rows = rows.filter(function (r) { return r.id !== req.id; });
       else {
+        if (req.due !== undefined && req.due !== t.due) t.showFrom = '';
         ['text', 'due', 'group', 'repeat'].forEach(function (k) { if (req[k] !== undefined) t[k] = req[k]; });
         if (req.status === 'done') {
           t.status = 'done';
           t.doneAt = req.doneAt;
-          if (t.repeat && req.nextId) rows.push({ id: req.nextId, text: t.text, due: nextRepeat(t.repeat, today()), group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: today() + 'T12:00:00', doneAt: '' });
+          if (t.repeat && req.nextId) { var nd = nextRepeat(t.repeat, today()); rows.push({ id: req.nextId, text: t.text, due: nd, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: today() + 'T12:00:00', doneAt: '', showFrom: addDays_(nd, -repeatLead(t.repeat)) }); }
         } else if (req.status === 'open') {
           t.status = 'open';
           t.doneAt = '';

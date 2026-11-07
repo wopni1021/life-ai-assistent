@@ -7,6 +7,7 @@
 var assert = function (v, msg) { if (!v) throw new Error(msg || 'assert failed'); };
 assert.strictEqual = function (a, b, msg) { if (a !== b) throw new Error((msg || 'not equal') + ': ' + JSON.stringify(a) + ' vs ' + JSON.stringify(b)); };
 assert.deepStrictEqual = function (a, b) { assert.strictEqual(JSON.stringify(a), JSON.stringify(b)); };
+// An old sheet without the showFrom title, to check it is added.
 var grid = [['id','text','due','group','repeat','status','raw','createdAt','doneAt']];
 var props = { API_TOKEN: 'secret', AI_KEY: 'k' };
 var lockHeld = 0, fetches = [], aiReply = null;
@@ -16,6 +17,7 @@ var sheet = {
   appendRow: r => { grid.push(r.slice()); },
   deleteRow: n => { grid.splice(n - 1, 1); },
   getRange: (r, c, nr, nc) => ({
+    getValue: () => (grid[r - 1] || [])[c - 1],
     getValues: () => grid.slice(r - 1, r - 1 + nr).map(x => x.slice(c - 1, c - 1 + nc)),
     setValues: v => { v.forEach((row, i) => { grid[r - 1 + i] = row.slice(); }); },
     setNumberFormat() { return this; }, setFontWeight() { return this; }
@@ -88,6 +90,15 @@ assert.strictEqual(JSON.parse(fetches[0].o.payload).fallbacks, undefined); asser
 r = call({ action: 'todoUpdate', id: 'b-2', text: '车大保养', due: '2030-02-01', group: '出门办' }); assert(r.ok, r.error); assert.strictEqual(row('b-2')[1], '车大保养');
 r = call({ action: 'todoUpdate', id: 'b-2', status: 'done', doneAt: today + 'T10:00:00', nextId: 'n1' }); assert(r.ok, r.error);
 assert.strictEqual(row('b-2')[5], 'done'); assert.strictEqual(row('n1')[5], 'open'); assert.strictEqual(row('n1')[4], '1m');
+assert.strictEqual(grid[0][9], 'showFrom', 'old sheet gets the new title');
+assert.strictEqual(row('n1')[9], addDays_(row('n1')[2], -6), 'monthly round waits until 6 days before');
+assert.strictEqual(row('n1')[2], nextRepeat('1m', today));
+assert.strictEqual(call({ action: 'todoList' }).data.todos.filter(t => t.id === 'n1')[0].showFrom, row('n1')[9]);
+call({ action: 'todoUpdate', id: 'n1', text: '车大保养!' }); assert(row('n1')[9], 'a text edit keeps it waiting');
+call({ action: 'todoUpdate', id: 'n1', due: row('n1')[2] }); assert(row('n1')[9], 'the same date keeps it waiting');
+call({ action: 'todoUpdate', id: 'n1', due: '2031-01-01' }); assert.strictEqual(row('n1')[9], '', 'a new date shows it now');
+assert(!call({ action: 'todoUpdate', id: 'n1', repeat: '0m' }).ok);
+assert(call({ action: 'todoUpdate', id: 'n1', repeat: '1.5m' }).ok); assert.strictEqual(row('n1')[4], '1.5m');
 call({ action: 'todoUpdate', id: 'b-2', status: 'done', nextId: 'n2' }); assert(!row('n2'), 'done twice makes one copy');
 r = call({ action: 'todoUpdate', id: 'b-2', status: 'open', removeId: 'n1' }); assert(r.ok, r.error);
 assert(!row('n1')); assert.strictEqual(row('b-2')[5], 'open'); assert.strictEqual(row('b-2')[8], '');

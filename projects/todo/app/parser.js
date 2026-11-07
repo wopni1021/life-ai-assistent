@@ -40,16 +40,16 @@ function weekend_(today) { return weekday_(today) === 7 ? today : weekOf_(today,
 
 /* ---------- numbers ---------- */
 
-var NUM_ = '[0-9]+|[零一二两三四五六七八九十]+';
+var NUM_ = '[0-9]+(?:\\.[0-9]+)?|[零一二两三四五六七八九十]+';
 var CN_DIGITS_ = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
 function toNum_(s) {
-  if (/^[0-9]+$/.test(s)) return Number(s);
+  if (/^[0-9.]+$/.test(s)) return Number(s);
   var at = s.indexOf('十');
   if (at < 0) return CN_DIGITS_[s];
   return (at === 0 ? 1 : CN_DIGITS_[s.slice(0, at)]) * 10 + (s.slice(at + 1) ? CN_DIGITS_[s.slice(at + 1)] : 0);
 }
 var EN_NUMS_ = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
-function enNum_(s) { return /^[0-9]+$/.test(s) ? Number(s) : EN_NUMS_[s]; }
+function enNum_(s) { return /^[0-9.]+$/.test(s) ? Number(s) : EN_NUMS_[s]; }
 function cnDay_(s) { return { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 }[s] || Number(s); }
 
 var EN_DAYS_ = { mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6, sun: 7 };
@@ -62,7 +62,11 @@ var WEEK_ = '(?:周|星期|礼拜)';
 var REPEAT_RULES_ = [
   [new RegExp('每(?:个)?' + WEEK_ + '([一二三四五六日天1-7])'), function (m) { return 'w' + cnDay_(m[1]); }],
   [new RegExp('每(?:个)?月(' + NUM_ + ')[号日]'), function (m) { return 'm' + toNum_(m[1]); }],
+  [/每隔?半个?月/, function () { return '2w'; }],
+  [/每隔?半年/, function () { return '6m'; }],
+  [/每隔?一?年/, function () { return '12m'; }],
   [new RegExp('每隔?(' + NUM_ + ')(?:个)?' + WEEK_), function (m) { return toNum_(m[1]) + 'w'; }],
+  [new RegExp('每隔?(' + NUM_ + ')个半月'), function (m) { return (toNum_(m[1]) + 0.5) + 'm'; }],
   [new RegExp('每隔?(' + NUM_ + ')个月'), function (m) { return toNum_(m[1]) + 'm'; }],
   [new RegExp('每隔?(' + NUM_ + ')[天日]'), function (m) { return toNum_(m[1]) + 'd'; }],
   [new RegExp('每(?:个)?' + WEEK_), function () { return '1w'; }],
@@ -70,26 +74,48 @@ var REPEAT_RULES_ = [
   [/每[天日]/, function () { return '1d'; }],
   [/\b(?:every day|daily)\b/i, function () { return '1d'; }],
   [new RegExp('\\bevery ' + EN_DAY_ + '\\b', 'i'), function (m) { return 'w' + enDay_(m[1].toLowerCase()); }],
-  [/\bevery ([0-9]+|two|three|four) weeks?\b/i, function (m) { return enNum_(m[1].toLowerCase()) + 'w'; }],
-  [/\bevery ([0-9]+|two|three|four|six) months?\b/i, function (m) { return enNum_(m[1].toLowerCase()) + 'm'; }],
+  [/\bevery ([0-9]+(?:\.[0-9]+)?|two|three|four|five|six|seven|eight|nine|ten) days\b/i, function (m) { return enNum_(m[1].toLowerCase()) + 'd'; }],
+  [/\bevery ([0-9]+(?:\.[0-9]+)?|two|three|four|five|six|seven|eight|nine|ten) weeks?\b/i, function (m) { return enNum_(m[1].toLowerCase()) + 'w'; }],
+  [/\bevery ([0-9]+(?:\.[0-9]+)?|two|three|four|five|six|seven|eight|nine|ten) months?\b/i, function (m) { return enNum_(m[1].toLowerCase()) + 'm'; }],
   [/\b(?:every week|weekly)\b/i, function () { return '1w'; }],
   [/\b(?:every month|monthly)\b/i, function () { return '1m'; }]
 ];
 
-/** When a repeating task comes back after it is done. */
+var REPEAT_COUNT_ = /^(\d+(?:\.\d+)?)([dwm])$/;
+var REPEAT_MAX_DAYS_ = 366;
+
+/** Roughly how many days apart the rounds are. */
+function repeatDays_(repeat) {
+  var m = REPEAT_COUNT_.exec(repeat);
+  if (m) return Number(m[1]) * { d: 1, w: 7, m: 30 }[m[2]];
+  return repeat.charAt(0) === 'w' ? 7 : 30;
+}
+
+/** When a repeating task comes back after it is done. 1.5m is one calendar month and then 15 days. */
 function nextRepeat(repeat, from) {
-  var m = /^(\d+)([dwm])$/.exec(repeat);
+  var m = REPEAT_COUNT_.exec(repeat);
   if (m) {
     var n = Number(m[1]);
-    return m[2] === 'd' ? addDays_(from, n) : m[2] === 'w' ? addDays_(from, 7 * n) : addMonths_(from, n);
+    if (m[2] !== 'm') return addDays_(from, Math.max(1, Math.round(n * (m[2] === 'w' ? 7 : 1))));
+    var whole = Math.floor(n);
+    return addDays_(addMonths_(from, whole), Math.round((n - whole) * 30));
   }
   if (repeat.charAt(0) === 'w') return nextWeekday_(from, Number(repeat.slice(1)));
   return nextDayOfMonth_(from, Number(repeat.slice(1)));
 }
 
+/**
+ * How many days before it is due the next round shows again: about a fifth of the interval,
+ * from 1 to 7 days, so a monthly task waits out of sight until the week it matters. Daily: on the day.
+ */
+function repeatLead(repeat) {
+  var days = repeatDays_(repeat);
+  return days <= 1 ? 0 : Math.min(7, Math.max(1, Math.round(days / 5)));
+}
+
 function repeatLabel(repeat) {
   if (!repeat) return '';
-  var m = /^(\d+)([dwm])$/.exec(repeat);
+  var m = REPEAT_COUNT_.exec(repeat);
   if (m) {
     var unit = { d: '天', w: '周', m: '月' }[m[2]];
     return m[1] === '1' ? '每' + unit : '每' + m[1] + (m[2] === 'm' ? '个' : '') + unit;
@@ -98,7 +124,12 @@ function repeatLabel(repeat) {
   return '每月' + repeat.slice(1) + '号';
 }
 
-function isRepeat(s) { return /^(\d+[dwm]|w[1-7]|m([1-9]|[12]\d|3[01]))$/.test(String(s || '')); }
+function isRepeat(s) {
+  s = String(s || '');
+  var m = REPEAT_COUNT_.exec(s);
+  if (m) return Number(m[1]) > 0 && repeatDays_(s) <= REPEAT_MAX_DAYS_;
+  return /^(w[1-7]|m([1-9]|[12]\d|3[01]))$/.test(s);
+}
 
 /* ---------- date phrases ---------- */
 

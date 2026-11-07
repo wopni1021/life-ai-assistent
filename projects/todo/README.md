@@ -4,7 +4,7 @@ Status: deployed automatically from GitHub. Tested with sample data and a stand-
 
 Setup steps: `backend/SETUP.md`. App: `app/`. Backend: `backend/`.
 
-Phone API (POST JSON `{token, action, ...}`): `todoList`, `todoAdd` (`{id?, text}`; returns `{tasks, message}`), `todoUpdate`. Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt`. `status` is `open` or `done`. `repeat` is `1d`, `2w`, `1m` (every N days, weeks, months), `w3` (every Wednesday) or `m5` (the 5th of each month).
+Phone API (POST JSON `{token, action, ...}`): `todoList`, `todoAdd` (`{id?, text}`; returns `{tasks, message}`), `todoUpdate`. Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt, showFrom`. `status` is `open` or `done`. `repeat` is a count and unit (`1d`, `2w`, `1.5m`, `45d`: every N days, weeks, months; decimals allowed, up to a year), `w3` (every Wednesday) or `m5` (the 5th of each month). `1.5m` means one calendar month and then 15 days. `showFrom` is set only on the next round of a repeating task; until that date the task waits out of the main list.
 
 ## Goal
 - Log a chore the moment it comes to mind, by voice, mostly in Chinese.
@@ -48,6 +48,7 @@ None.
 - No date said means due in 7 days. 不急 means 30 days.
 - A week runs Monday to Sunday. 这周 is the coming Sunday, 周末 the coming Saturday, 下周 the Sunday of next week.
 - A repeating task comes back one interval after it is finished. 每周三 and 每月5号 use the next such date.
+- The next round waits out of sight and reappears about a fifth of the interval before it is due, between 1 and 7 days (每周 1 day, 每月 6 days, 每1.5个月 7 days; daily on the day). Waiting rounds sit behind one folded row, "安排好了 N 件", where they can be edited or finished early. Setting a new date shows the task at once. One-off tasks due later stay in 以后.
 - No daily streaks, because one missed day resets them. The weekly count only goes up. Overdue wording stays calm.
 - In-app speech recognition is left out because it is unreliable in Home Screen apps.
 - Left out of v1: quick re-add of past purchases, location reminders, learning from group corrections.
