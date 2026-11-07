@@ -453,3 +453,46 @@ function addFromStatement_(it) {
   sh.getRange(sh.getLastRow() + 1, 1, 1, TABS.Transactions.length).setValues([TABS.Transactions.map(function (h) { return rec[h]; })]);
   return rec.id;
 }
+
+/* ---------- tuning the readers (run by hand from the editor) ---------- */
+
+/**
+ * Writes the text Google makes from each statement email to a temporary StatementText tab, one row per line,
+ * so the per-bank readers can be matched to it. Delete the tab afterwards with restartStatementReview.
+ */
+function saveStatementText() {
+  var out = [['statementId', 'line', 'text']];
+  var threads = GmailApp.search(STATEMENT_SEARCH, 0, 50);
+  GmailApp.getMessagesForThreads(threads).forEach(function (list) {
+    list.forEach(function (m) {
+      if (!isStatementSubject_(m.getSubject())) return;
+      m.getAttachments().forEach(function (a, k) {
+        if (a.getContentType() !== 'application/pdf' && !/\.pdf$/i.test(a.getName())) return;
+        var lines = String(pdfText_(a.copyBlob())).split(/\r?\n/);
+        lines.forEach(function (t, n) { out.push([m.getId() + '-' + k, n + 1, "'" + t.slice(0, 2000)]); });
+      });
+    });
+  });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName('StatementText') || ss.insertSheet('StatementText');
+  sh.clear();
+  sh.getRange(1, 1, out.length, 3).setValues(out);
+  Logger.log('Saved ' + (out.length - 1) + ' lines to the StatementText tab.');
+}
+
+/**
+ * Forgets every statement read so far and its open review items, and deletes the StatementText tab,
+ * so the next app open reads the statement emails again. Entries already added to the app stay.
+ */
+function restartStatementReview() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var text = ss.getSheetByName('StatementText');
+  if (text) ss.deleteSheet(text);
+  ['Statements', 'StatementItems'].forEach(function (name) {
+    var sh = ss.getSheetByName(name);
+    if (sh && sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+  });
+  PropertiesService.getScriptProperties().deleteProperty('statementBusy');
+  bumpVersion_();
+  Logger.log('Statement review cleared. Open the app to read the statements again.');
+}
