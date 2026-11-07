@@ -260,9 +260,12 @@ function authorizeStatements() {
   var res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
     headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
   });
-  SpreadsheetApp.getUi().alert(res.getResponseCode() < 300
+  var msg = res.getResponseCode() < 300
     ? 'Statement review is ready. Send a statement to yourself with the subject e, then open the app.'
-    : 'Drive did not answer (' + res.getResponseCode() + '). Try again in a minute.');
+    : 'Drive did not answer (' + res.getResponseCode() + '). Try again in a minute.';
+  // Run from the editor there is no sheet window to show a box in, so the message goes to the log.
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
 }
 
 /** The PDF's text, through a temporary Google Doc copy that is deleted straight after. */
