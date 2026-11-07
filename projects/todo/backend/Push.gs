@@ -30,7 +30,8 @@ function pushMessage_(todos, today) {
   var dueToday = open.filter(function (t) { return t.due === today; });
   if (!overdue.length && !dueToday.length) return null;
   var doneYesterday = todos.filter(function (t) { return t.status === 'done' && String(t.doneAt).slice(0, 10) === yesterday; }).length;
-  var later = open.filter(function (t) { return t.due > today && t.due <= sunday; }).length;
+  // A repeating task waiting to reappear does not count; it is out of sight on purpose.
+  var later = open.filter(function (t) { return t.due > today && t.due <= sunday && !(t.showFrom > today); }).length;
 
   var title = '今天 ' + dueToday.length + ' 件' + (overdue.length ? ' · 过期 ' + overdue.length + ' 件' : '');
   var list = overdue.concat(dueToday), lines = [];

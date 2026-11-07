@@ -33,11 +33,12 @@
   var GROUP_ICONS = { 买东西: '🛒', 出门办: '🚗', 手机办: '📱', 在家做: '🏠', 未分组: '📌' };
   var PRAISE = ['搞定！', '又少一件！', '干得漂亮！', '这件不用再记着了', '脑子又空出一格', '清爽！', '漂亮！', '一件一件来，真棒'];
   var REPEATS = [['', '不重复'], ['1d', '每天'], ['1w', '每周'], ['2w', '每两周'], ['1m', '每月']];
+  var REPEAT_UNITS = [['d', '天'], ['w', '周'], ['m', '个月']];
   var WAITED_DAYS = 3;
   var LEAVE_MS = 520;
 
   var cfg = { url: store.get('td_url') || '', token: store.get('td_token') || '' };
-  var state = { filter: 'all', showDone: false };
+  var state = { filter: 'all', showDone: false, showWaiting: false };
   /* Saved copy of the list, and changes not yet sent. A cache on this phone; the sheet stays the source of truth. */
   var list = loadJson('td_list', null);
   var queue = loadJson('td_queue', []);
@@ -68,7 +69,8 @@
   var toastTimer;
   function toast(msg, undo) {
     var t = $('#toast');
-    t.replaceChildren(h('span', null, msg), undo ? h('button', { class: 'undo', onclick: function () { t.hidden = true; undo(); } }, '撤销') : null);
+    t.replaceChildren();
+    append(t, [h('span', null, msg), undo ? h('button', { class: 'undo', onclick: function () { t.hidden = true; undo(); } }, '撤销') : null]);
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.hidden = true; }, undo ? 5000 : 3200);
@@ -83,6 +85,8 @@
   }
   function save() { store.set('td_list', JSON.stringify(list)); store.set('td_queue', JSON.stringify(queue)); }
   function open_() { return list.filter(function (t) { return t.status === 'open'; }); }
+  /** The next round of a repeating task stays out of sight until a few days before it is due. */
+  function isWaiting(t, today) { return !!t.showFrom && t.showFrom > today; }
   function byDue(a, b) { return a.due === b.due ? (a.createdAt < b.createdAt ? -1 : 1) : (a.due < b.due ? -1 : 1); }
   function nowTasks() { var t = todayStr(); return open_().filter(function (x) { return x.due <= t; }); }
   function doneOn(day) { return list.filter(function (t) { return t.status === 'done' && t.doneAt.slice(0, 10) === day; }); }
@@ -252,7 +256,10 @@
     var nextId = t.repeat ? newId() : '';
     t.status = 'done';
     t.doneAt = nowStr();
-    if (nextId) list.push({ id: nextId, text: t.text, due: nextRepeat(t.repeat, today), group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: nowStr(), doneAt: '' });
+    if (nextId) {
+      var nextDue = nextRepeat(t.repeat, today);
+      list.push({ id: nextId, text: t.text, due: nextDue, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: nowStr(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(t.repeat)) });
+    }
     enqueue('todoUpdate', { id: t.id, status: 'done', doneAt: t.doneAt, nextId: nextId });
     save();
     drawProgress();
@@ -285,6 +292,7 @@
         h('div', { class: 'row-text' }, t.text),
         h('div', { class: 'row-meta' },
           h('span', { class: t.due < today ? 'late' : '' }, dueLabel(t.due, today)),
+          isWaiting(t, today) ? ' · ' + monthDay(t.showFrom) + '出现' : null,
           state.filter === 'all' ? ' · ' + GROUP_ICONS[t.group] + ' ' + t.group : null,
           t.repeat ? ' · 🔁 ' + repeatLabel(t.repeat) : null)),
       t.group === '买东西' ? shopeeLink(t) : null);
@@ -339,9 +347,18 @@
     });
     return h('div', { class: 'card trophy' }, head, body.length ? body : h('p', { class: 'small muted' }, '还没有完成的事。勾掉第一件吧。'));
   }
+  function waitingRow(tasks, today) {
+    if (!tasks.length) return null;
+    var head = h('button', { class: 'trophy-head', 'aria-expanded': String(state.showWaiting), onclick: function () { state.showWaiting = !state.showWaiting; draw(); } },
+      h('span', null, '🔁 安排好了 ', h('b', null, tasks.length), ' 件'), h('span', { class: 'small muted' }, state.showWaiting ? '收起' : '到时候再出现'));
+    return h('section', { class: 'waiting' }, h('div', { class: 'card trophy' }, head),
+      state.showWaiting ? h('div', { class: 'card list' }, tasks.map(function (t) { return taskRow(t, today); })) : null);
+  }
   function draw() {
     if (!list || !$('#list')) return;
-    var today = todayStr(), week = addDays_(today, 7), all = open_().sort(byDue);
+    var today = todayStr(), week = addDays_(today, 7);
+    var all = open_().filter(function (t) { return !isWaiting(t, today); }).sort(byDue);
+    var waiting = open_().filter(function (t) { return isWaiting(t, today); }).sort(byDue);
     if (state.filter !== 'all' && state.filter !== TODO_NO_GROUP && TODO_GROUPS.indexOf(state.filter) < 0) state.filter = 'all';
     var shown = all.filter(function (t) { return state.filter === 'all' || t.group === state.filter; });
     drawProgress();
@@ -352,6 +369,7 @@
     $('#list').replaceChildren.apply($('#list'), [
       section('现在要做', now, today, 'now'), section('这周', soon, today), section('以后', later, today),
       shown.length ? null : h('div', { class: 'card empty' }, state.filter === 'all' ? '没有待办了。想到什么，说一句就记下。' : '这一组没有待办。'),
+      waitingRow(waiting, today),
       trophyWall(today)
     ].filter(Boolean));
   }
@@ -419,17 +437,26 @@
       drawDates();
       drawGroups();
       date.addEventListener('change', function () { if (date.value) { due = date.value; drawDates(); } });
-      var options = REPEATS.concat(REPEATS.some(function (r) { return r[0] === t.repeat; }) ? [] : [[t.repeat, repeatLabel(t.repeat)]]);
-      var repeat = h('select', { 'aria-label': '重复' }, options.map(function (r) {
-        var o = h('option', { value: r[0] }, r[1]);
-        if (r[0] === t.repeat) o.selected = true;
-        return o;
-      }));
+      // A count like 1.5 months goes in the custom fields; a weekday or day of the month keeps its own option.
+      var preset = REPEATS.some(function (r) { return r[0] === t.repeat; });
+      var counted = preset ? null : /^(\d+(?:\.\d+)?)([dwm])$/.exec(t.repeat || '');
+      var options = REPEATS.concat(preset || counted ? [] : [[t.repeat, repeatLabel(t.repeat)]], [['custom', '自定义…']]);
+      var repeat = h('select', { 'aria-label': '重复' }, options.map(function (r) { return h('option', { value: r[0] }, r[1]); }));
+      repeat.value = counted ? 'custom' : t.repeat || '';
+      var count = h('input', { type: 'text', inputmode: 'decimal', value: counted ? counted[1] : '', placeholder: '1.5', 'aria-label': '每隔多少' });
+      var unit = h('select', { 'aria-label': '单位' }, REPEAT_UNITS.map(function (u) { return h('option', { value: u[0] }, u[1]); }));
+      unit.value = counted ? counted[2] : 'm';
+      var custom = h('div', { class: 'repeat-custom' }, h('span', null, '每'), count, unit);
+      custom.hidden = repeat.value !== 'custom';
+      repeat.addEventListener('change', function () {
+        custom.hidden = repeat.value !== 'custom';
+        if (!custom.hidden) count.focus();
+      });
       return h('div', { class: 'card editor' },
         h('label', { class: 'field' }, '内容', text),
         h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '什么时候'), dateBox, date),
         h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '分组'), groupBox),
-        h('label', { class: 'field' }, '重复', repeat),
+        h('div', { class: 'stack tight' }, h('label', { class: 'field' }, '重复', repeat), custom),
         t.raw && t.raw !== t.text ? h('div', { class: 'small muted' }, '你说的原话：' + t.raw) : null,
         h('div', { class: 'btn-row' },
           h('button', { class: 'btn danger', onclick: function () {
@@ -441,8 +468,15 @@
           h('button', { class: 'btn', onclick: function () {
             var newText = text.value.trim();
             if (!newText) return toast('内容不能是空的');
-            Object.assign(t, { text: newText, due: due, group: group, repeat: repeat.value });
-            enqueue('todoUpdate', { id: t.id, text: newText, due: due, group: group, repeat: repeat.value });
+            var every = repeat.value;
+            if (every === 'custom') {
+              var n = Number(halfWidth_(count.value).trim());
+              every = n + unit.value;
+              if (!isRepeat(every)) return toast('重复间隔要大于 0，最长一年');
+            }
+            if (due !== t.due) t.showFrom = '';
+            Object.assign(t, { text: newText, due: due, group: group, repeat: every });
+            enqueue('todoUpdate', { id: t.id, text: newText, due: due, group: group, repeat: every });
             save();
             close();
           } }, '保存')));

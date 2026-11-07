@@ -114,6 +114,9 @@ input[type=text], input[type=date], select, textarea {
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; color: var(--ink); }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }
 .editor { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.repeat-custom { display: flex; align-items: center; gap: 8px; }
+.repeat-custom input { flex: 1 1 90px; min-width: 0; }
+.repeat-custom select { flex: 0 0 104px; }
 
 .overlay { position: fixed; inset: 0; z-index: 20; background: rgba(6, 14, 11, .55); display: flex; align-items: flex-end; justify-content: center; }
 .sheet { width: 100%; max-width: 560px; max-height: 92%; overflow-y: auto; background: var(--bg); border-radius: 20px 20px 0 0; padding: 12px 12px calc(16px + env(safe-area-inset-bottom, 0px)); }

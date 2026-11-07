@@ -2,7 +2,7 @@
  * Opens the app from the phone at once, then refreshes the saved files in the background,
  * so a published update appears on the next open. Task data is never cached here.
  */
-var VERSION = 'todo-v1';
+var VERSION = 'todo-v2';
 var SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'todo.js', 'mock.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', function (e) {
