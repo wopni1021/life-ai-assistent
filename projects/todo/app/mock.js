@@ -47,7 +47,7 @@
         if (req.status === 'done') {
           t.status = 'done';
           t.doneAt = req.doneAt;
-          if (t.repeat && req.nextId) { var nd = nextRepeat(t.repeat, today()); rows.push({ id: req.nextId, text: t.text, due: nd, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: today() + 'T12:00:00', doneAt: '', showFrom: addDays_(nd, -repeatLead(t.repeat)) }); }
+          if (t.repeat && req.nextId) { var nd = nextRound(t.repeat, t.due, today()); rows.push({ id: req.nextId, text: t.text, due: nd, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: today() + 'T12:00:00', doneAt: '', showFrom: addDays_(nd, -repeatLead(t.repeat)) }); }
         } else if (req.status === 'open') {
           t.status = 'open';
           t.doneAt = '';

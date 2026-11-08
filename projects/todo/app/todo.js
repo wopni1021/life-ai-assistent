@@ -254,10 +254,10 @@
     burst(box.left + box.width / 2, box.top + box.height / 2, Math.min(32, 10 + waited * 2), Math.min(120, 60 + waited * 4));
 
     var nextId = t.repeat ? newId() : '';
+    var nextDue = nextId ? nextRound(t.repeat, t.due, today) : '';
     t.status = 'done';
     t.doneAt = nowStr();
     if (nextId) {
-      var nextDue = nextRepeat(t.repeat, today);
       list.push({ id: nextId, text: t.text, due: nextDue, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: nowStr(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(t.repeat)) });
     }
     enqueue('todoUpdate', { id: t.id, status: 'done', doneAt: t.doneAt, nextId: nextId });
@@ -266,7 +266,7 @@
     if (quiet) draw();
     else slideAway(row);
 
-    var note = praiseFor(waited) + (nextId ? ' 下次 ' + monthDay(nextRepeat(t.repeat, today)) : '');
+    var note = praiseFor(waited) + (nextId ? ' 下次 ' + monthDay(nextDue) : '');
     toast(note, function () { reopen(t, nextId); });
     if (hadNow && !nowTasks().length) celebrate(doneOn(today).length);
   }

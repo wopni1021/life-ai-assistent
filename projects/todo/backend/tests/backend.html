@@ -92,7 +92,7 @@ r = call({ action: 'todoUpdate', id: 'b-2', status: 'done', doneAt: today + 'T10
 assert.strictEqual(row('b-2')[5], 'done'); assert.strictEqual(row('n1')[5], 'open'); assert.strictEqual(row('n1')[4], '1m');
 assert.strictEqual(grid[0][9], 'showFrom', 'old sheet gets the new title');
 assert.strictEqual(row('n1')[9], addDays_(row('n1')[2], -6), 'monthly round waits until 6 days before');
-assert.strictEqual(row('n1')[2], nextRepeat('1m', today));
+assert.strictEqual(row('n1')[2], '2030-03-01', 'next round follows the planned date, not the day it was done');
 assert.strictEqual(call({ action: 'todoList' }).data.todos.filter(t => t.id === 'n1')[0].showFrom, row('n1')[9]);
 call({ action: 'todoUpdate', id: 'n1', text: '车大保养!' }); assert(row('n1')[9], 'a text edit keeps it waiting');
 call({ action: 'todoUpdate', id: 'n1', due: row('n1')[2] }); assert(row('n1')[9], 'the same date keeps it waiting');

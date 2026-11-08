@@ -228,7 +228,7 @@ function todoUpdate_(req) {
     rec.status = 'done';
     rec.doneAt = /^\d{4}-\d{2}-\d{2}T[\d:]{8}$/.test(req.doneAt || '') ? req.doneAt : nowStr_();
     if (rec.repeat && req.nextId && !rowOf_(req.nextId)) {
-      var nextDue = nextRepeat(rec.repeat, rec.doneAt.slice(0, 10));
+      var nextDue = nextRound(rec.repeat, rec.due, rec.doneAt.slice(0, 10));
       appendRow_({ id: text_(req.nextId, 60), text: rec.text, due: nextDue, group: rec.group, repeat: rec.repeat, status: 'open', raw: rec.raw, createdAt: nowStr_(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(rec.repeat)) });
     }
   } else if (req.status === 'open') {

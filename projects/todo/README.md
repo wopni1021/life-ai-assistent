@@ -4,7 +4,7 @@ Status: deployed automatically from GitHub. Tested with sample data and a stand-
 
 Setup steps: `backend/SETUP.md`. App: `app/`. Backend: `backend/`.
 
-Phone API (POST JSON `{token, action, ...}`): `todoList`, `todoAdd` (`{id?, text}`; returns `{tasks, message}`), `todoUpdate`. Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt, showFrom`. `status` is `open` or `done`. `repeat` is a count and unit (`1d`, `2w`, `1.5m`, `45d`: every N days, weeks, months; decimals allowed, up to a year), `w3` (every Wednesday) or `m5` (the 5th of each month). `1.5m` means one calendar month and then 15 days. `showFrom` is set only on the next round of a repeating task; until that date the task waits out of the main list.
+Phone API (POST JSON `{token, action, ...}`): `todoList`, `todoAdd` (`{id?, text}`; returns `{tasks, message}`), `todoUpdate`. Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt, showFrom`. `status` is `open` or `done`. `repeat` is a count and unit (`1d`, `2w`, `1.5m`, `45d`: every N days, weeks, months; decimals allowed, up to a year), `w3` (every Wednesday) or `m5` (the 5th of each month). `1.5m` means one calendar month and then 15 days. `showFrom` is set only on the next round of a repeating task; until that date the task waits out of the main list. The next round is counted from the planned `due`, not the day it was finished, so finishing early or late keeps the rhythm; rounds already gone by are skipped.
 
 ## Goal
 - Log a chore the moment it comes to mind, by voice, mostly in Chinese.

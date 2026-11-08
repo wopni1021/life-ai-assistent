@@ -105,6 +105,16 @@ function nextRepeat(repeat, from) {
 }
 
 /**
+ * The next round after finishing a repeating task: on the plan, counted from its due date,
+ * not from the day it was finished. Rounds already gone by are skipped, so it is after today.
+ */
+function nextRound(repeat, due, today) {
+  var next = nextRepeat(repeat, due || today);
+  for (var i = 0; next <= today && i < 5000; i++) next = nextRepeat(repeat, next);
+  return next;
+}
+
+/**
  * How many days before it is due the next round shows again: about a fifth of the interval,
  * from 1 to 7 days, so a monthly task waits out of sight until the week it matters. Daily: on the day.
  */

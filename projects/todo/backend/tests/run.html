@@ -140,6 +140,17 @@ ok('next 1.5m mid-month', { v: nextRepeat('1.5m', TODO) }, { v: '2026-12-15' });
 ok('next 1.5w', { v: nextRepeat('1.5w', TODO) }, { v: '2026-11-11' });
 ok('next 6w', { v: nextRepeat('6w', TODO) }, { v: '2026-12-12' });
 ok('next 1m unchanged', { v: nextRepeat('1m', TODO) }, { v: '2026-11-30' });
+// nextRound: counted from the planned date; rounds gone by are skipped.
+ok('round early', { v: nextRound('1m', '2026-12-01', '2026-11-25') }, { v: '2027-01-01' });
+ok('round on time', { v: nextRound('1w', '2026-11-02', '2026-11-02') }, { v: '2026-11-09' });
+ok('round late skips ahead', { v: nextRound('1w', '2026-11-02', '2026-11-12') }, { v: '2026-11-16' });
+ok('round late on a planned day', { v: nextRound('1w', '2026-11-02', '2026-11-09') }, { v: '2026-11-16' });
+ok('round daily a day late', { v: nextRound('1d', '2026-11-07', '2026-11-08') }, { v: '2026-11-09' });
+ok('round daily years late', { v: nextRound('1d', '2020-01-01', '2026-11-08') }, { v: '2026-11-09' });
+ok('round w3 late', { v: nextRound('w3', '2026-10-21', '2026-11-08') }, { v: '2026-11-11' });
+ok('round m5 early', { v: nextRound('m5', '2026-12-05', '2026-11-30') }, { v: '2027-01-05' });
+ok('round 1.5m', { v: nextRound('1.5m', '2026-11-01', '2026-11-03') }, { v: '2026-12-16' });
+ok('round no due', { v: nextRound('2w', '', '2026-11-08') }, { v: '2026-11-22' });
 ok('lead', { d: repeatLead('1d'), w: repeatLead('1w'), w2: repeatLead('2w'), m: repeatLead('1m'), m15: repeatLead('1.5m'), y: repeatLead('12m'), wd: repeatLead('w3'), md: repeatLead('m5') },
   { d: 0, w: 1, w2: 3, m: 6, m15: 7, y: 7, wd: 1, md: 6 });
 ok('isRepeat', { a: isRepeat('1.5m'), b: isRepeat('0m'), c: isRepeat('-1d'), d: isRepeat('400m'), e: isRepeat('12m'), f: isRepeat('366d'), g: isRepeat('w3'), h: isRepeat('m31'), i: isRepeat('1.5'), j: isRepeat('') },
