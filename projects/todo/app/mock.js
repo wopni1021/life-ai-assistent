@@ -13,7 +13,7 @@
     done.status = 'done';
     done.doneAt = addDays_(t, -1) + 'T18:30:00';
     return [
-      task('s1', '买维生素D', -2, '买东西', '', 12),
+      Object.assign(task('s1', '买维生素D', -2, '买东西', '', 12), { buyEn: 'vitamin D' }),
       task('s2', '转账给房东', 0, '手机办'),
       task('s3', '给车打气', 3, '出门办', '1m'),
       task('s4', '报销保险', 5, '手机办', '', 1),
@@ -39,6 +39,11 @@
   function loadIdeas() { try { return JSON.parse(localStorage.getItem('td_mock_ideas')) || sampleIdeas(); } catch (e) { return sampleIdeas(); } }
   function keep() { try { localStorage.setItem('td_mock', JSON.stringify(rows)); localStorage.setItem('td_mock_ideas', JSON.stringify(ideas)); } catch (e) {} }
   function now() { return today() + 'T12:00:00'; }
+  /* A stand-in for Google Translate in the backend. */
+  function fakeEn(text) {
+    var w = buyWord(text), known = { 维生素D: 'vitamin D', 尿布: 'diapers', 婴儿湿巾: 'baby wipes', 湿巾: 'wet wipes', 奶粉: 'milk powder' };
+    return /[一-鿿]/.test(w) ? known[w] || 'thing' : w;
+  }
   function reply(v) { return new Promise(function (r) { setTimeout(function () { r(JSON.parse(JSON.stringify(v))); }, 150); }); }
   var rows = load(), ideas = loadIdeas();
 
@@ -67,7 +72,7 @@
     }
     if (a === 'todoAdd') {
       var p = parseTodo(req.text, today());
-      var rec = { id: req.id, text: p.text, due: p.due, group: p.group, repeat: p.repeat, status: 'open', raw: req.text, createdAt: today() + 'T12:00:00', doneAt: '' };
+      var rec = { id: req.id, text: p.text, due: p.due, group: p.group, repeat: p.repeat, status: 'open', raw: req.text, createdAt: today() + 'T12:00:00', doneAt: '', buyEn: p.group === '买东西' ? fakeEn(p.text) : '' };
       if (!rows.some(function (r) { return r.id === req.id; })) rows.push(rec);
       keep();
       return reply({ tasks: [rec], message: '已记下：' + rec.text });
@@ -78,7 +83,9 @@
       if (req.remove) rows = rows.filter(function (r) { return r.id !== req.id; });
       else {
         if (req.due !== undefined && req.due !== t.due) t.showFrom = '';
-        ['text', 'due', 'group', 'repeat'].forEach(function (k) { if (req[k] !== undefined) t[k] = req[k]; });
+        var oldText = t.text, en;
+        ['text', 'due', 'group', 'repeat', 'buyEn'].forEach(function (k) { if (req[k] !== undefined) t[k] = req[k]; });
+        if (req.buyEn === undefined && t.group === '买东西' && t.text !== oldText) en = t.buyEn = fakeEn(t.text);
         if (req.status === 'done') {
           t.status = 'done';
           t.doneAt = req.doneAt;
@@ -90,7 +97,7 @@
         }
       }
       keep();
-      return reply({ id: req.id });
+      return reply(en !== undefined ? { id: req.id, buyEn: en } : { id: req.id });
     }
     return Promise.reject(new Error('unknown action'));
   };

@@ -4,7 +4,7 @@ Status: deployed automatically from GitHub. Tested with sample data and a stand-
 
 Setup steps: `backend/SETUP.md`. App: `app/`. Backend: `backend/`.
 
-Phone API (POST JSON `{token, action, ...}`): `todoList` (returns `{todos, ideas}`), `todoAdd` (`{id?, text, plain?}`; returns `{tasks, message}`; without `plain` a sentence starting with 想法 or 补充 is filed as an idea or a note instead), `todoUpdate`, `ideaAdd` (`{id, text, kind?, raw?}`), `ideaUpdate` (`{id, text?, kind?, stage?, note?, toggleNote?, removeNote?, remove?}`). Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt, showFrom`. `status` is `open` or `done`. `repeat` is a count and unit (`1d`, `2w`, `1.5m`, `45d`: every N days, weeks, months; decimals allowed, up to a year), `w3` (every Wednesday) or `m5` (the 5th of each month). `1.5m` means one calendar month and then 15 days. `showFrom` is set only on the next round of a repeating task; until that date the task waits out of the main list. The next round is counted from the planned `due`, not the day it was finished, so finishing early or late keeps the rhythm; rounds already gone by are skipped.
+Phone API (POST JSON `{token, action, ...}`): `todoList` (returns `{todos, ideas}`), `todoAdd` (`{id?, text, plain?}`; returns `{tasks, message}`; without `plain` a sentence starting with 想法 or 补充 is filed as an idea or a note instead), `todoUpdate`, `ideaAdd` (`{id, text, kind?, raw?}`), `ideaUpdate` (`{id, text?, kind?, stage?, note?, toggleNote?, removeNote?, remove?}`). Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt, showFrom, buyEn`. `buyEn` is the English Shopee search for a 买东西 task. `status` is `open` or `done`. `repeat` is a count and unit (`1d`, `2w`, `1.5m`, `45d`: every N days, weeks, months; decimals allowed, up to a year), `w3` (every Wednesday) or `m5` (the 5th of each month). `1.5m` means one calendar month and then 15 days. `showFrom` is set only on the next round of a repeating task; until that date the task waits out of the main list. The next round is counted from the planned `due`, not the day it was finished, so finishing early or late keeps the rhythm; rounds already gone by are skipped.
 
 ## Goal
 - Log a chore the moment it comes to mind, by voice, mostly in Chinese.
@@ -27,7 +27,8 @@ Where or how a task gets done, because the useful question is "what can I do fro
 ## Phone behavior
 - Sections: 现在要做 (overdue and today), 这周 (next 7 days), 以后. Filter chips by group.
 - Opens from a saved copy. Unsent changes stay in a saved queue and retry, so closing the app loses nothing.
-- 买东西 tasks have a Shopee search button.
+- 买东西 tasks have three buttons, 京东 · 拼多多 · Shopee. JD and PDD open their app (falling back to their website) and search in Chinese; Shopee searches in English, using `buyEn`.
+- `buyEn` comes from Google Translate inside Apps Script (`LanguageApp`: free, no key) after the task is saved, again whenever the text changes, and can be typed by hand in the edit screen. Until then, or if translating fails, Shopee searches in Chinese.
 - Finishing a task: tick animation, sparks, soft ding, varied praise, bigger reward for tasks that waited longer, a 今天 N/M progress bar, a full-screen moment when 现在要做 is cleared, and a weekly trophy count.
 
 ## Ideas (想法)
@@ -48,7 +49,7 @@ Only the user.
 None.
 
 ## Open questions
-- Does the Shopee web link open the Shopee app on iPhone?
+- Do the 京东, 拼多多 and Shopee buttons open their apps from the Home Screen app on iPhone? JD uses `openapp.jdmobile://`, PDD `pinduoduo://`, Shopee its web address.
 - Which phrases does real dictation produce that the parser misreads? Add each one to `backend/tests/run.html`.
 - How long does a real AI call take? If Opus feels slow, set `AI_MODEL` to `claude-haiku-5-5`.
 

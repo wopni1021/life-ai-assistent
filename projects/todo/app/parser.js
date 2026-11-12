@@ -294,6 +294,14 @@ function parseTodo(raw, today) {
   };
 }
 
+/* ---------- shopping ---------- */
+
+/** What to search a shop for: "买维生素D" gives "维生素D". */
+function buyWord(text) {
+  text = String(text || '');
+  return text.replace(/^.*?(?:购买|买)/, '').replace(/^\s*buy\s+/i, '').trim() || text.trim();
+}
+
 /* ---------- ideas ---------- */
 
 var IDEA_KINDS = ['改进', '新东西', '赚钱'];

@@ -6,7 +6,7 @@
  */
 
 var TZ = 'Asia/Singapore';
-var TODO_HEAD = ['id', 'text', 'due', 'group', 'repeat', 'status', 'raw', 'createdAt', 'doneAt', 'showFrom'];
+var TODO_HEAD = ['id', 'text', 'due', 'group', 'repeat', 'status', 'raw', 'createdAt', 'doneAt', 'showFrom', 'buyEn'];
 var IDEA_HEAD = ['id', 'text', 'kind', 'stage', 'notes', 'raw', 'createdAt', 'updatedAt', 'stageAt'];
 var HEADS_ = { Todos: TODO_HEAD, Ideas: IDEA_HEAD };
 var DONE_KEEP_DAYS = 30;
@@ -71,7 +71,12 @@ function checkToken_(given) {
 function handle_(req) {
   if (req.action === 'todoList') return todoList_();
   if (req.action === 'todoAdd') return todoAdd_(req);
-  if (req.action === 'todoUpdate') return withLock_(function () { return todoUpdate_(req); });
+  if (req.action === 'todoUpdate') {
+    var done = withLock_(function () { return todoUpdate_(req); });
+    if (done.translate) done.buyEn = fillBuyEn_([{ id: done.id, text: done.translate }])[0].buyEn || '';
+    delete done.translate;
+    return done;
+  }
   if (req.action === 'ideaAdd') return withLock_(function () { return ideaAdd_(req); });
   if (req.action === 'ideaUpdate') return withLock_(function () { return ideaUpdate_(req); });
   throw new Error('unknown action');
@@ -127,6 +132,7 @@ function loadTodos_() {
     o.createdAt = cellStr_(o.createdAt, "yyyy-MM-dd'T'HH:mm:ss");
     o.doneAt = cellStr_(o.doneAt, "yyyy-MM-dd'T'HH:mm:ss");
     o.showFrom = cellStr_(o.showFrom, 'yyyy-MM-dd');
+    o.buyEn = String(o.buyEn || '');
     return o;
   });
 }
@@ -220,6 +226,7 @@ function todoAdd_(req) {
     var better = aiTasks_(raw, parsed, today);
     if (better.length) tasks = withLock_(function () { return applyAi_(rec, better); });
   }
+  if (isNew) fillBuyEn_(tasks.filter(function (t) { return t.group === '买东西'; }));
   return { tasks: tasks, message: savedMessage_(tasks, today) };
 }
 
@@ -247,6 +254,7 @@ function todoUpdate_(req) {
     return { id: req.id };
   }
   var rec = readRow_(row);
+  var oldText = rec.text, oldGroup = rec.group;
   if (req.text !== undefined) rec.text = text_(req.text, 200);
   if (req.due !== undefined) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(req.due)) throw new Error('bad date');
@@ -262,12 +270,19 @@ function todoUpdate_(req) {
     if (req.repeat && !isRepeat(req.repeat)) throw new Error('bad repeat');
     rec.repeat = req.repeat;
   }
+  // English words for the Shopee search: set by hand, or made again when a shopping task's text changes.
+  var translate = '';
+  if (req.buyEn !== undefined) rec.buyEn = text_(req.buyEn, 100);
+  else if (rec.group === '买东西' && (rec.text !== oldText || (oldGroup !== '买东西' && !rec.buyEn))) {
+    rec.buyEn = '';
+    translate = rec.text;
+  }
   if (req.status === 'done' && rec.status !== 'done') {
     rec.status = 'done';
     rec.doneAt = /^\d{4}-\d{2}-\d{2}T[\d:]{8}$/.test(req.doneAt || '') ? req.doneAt : nowStr_();
     if (rec.repeat && req.nextId && !rowOf_(req.nextId)) {
       var nextDue = nextRound(rec.repeat, rec.due, rec.doneAt.slice(0, 10));
-      appendRow_({ id: text_(req.nextId, 60), text: rec.text, due: nextDue, group: rec.group, repeat: rec.repeat, status: 'open', raw: rec.raw, createdAt: nowStr_(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(rec.repeat)) });
+      appendRow_({ id: text_(req.nextId, 60), text: rec.text, due: nextDue, group: rec.group, repeat: rec.repeat, status: 'open', raw: rec.raw, createdAt: nowStr_(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(rec.repeat)), buyEn: rec.buyEn });
     }
   } else if (req.status === 'open') {
     rec.status = 'open';
@@ -277,7 +292,39 @@ function todoUpdate_(req) {
     row = rowOf_(req.id);
   }
   writeRow_(row, rec);
-  return { id: req.id };
+  return { id: req.id, translate: translate };
+}
+
+/**
+ * English search words for shopping tasks, from Google Translate inside Apps Script: free, no key,
+ * and nothing leaves the user's Google account. Done after the task is saved and outside the lock;
+ * on any failure the task keeps an empty buyEn and Shopee searches in Chinese.
+ */
+function fillBuyEn_(tasks) {
+  tasks.forEach(function (t) {
+    var en = translateBuy_(buyWord(t.text));
+    if (!en) return;
+    t.buyEn = en;
+    withLock_(function () {
+      var row = rowOf_(t.id);
+      if (!row) return;
+      var rec = readRow_(row);
+      if (rec.text !== t.text || rec.buyEn) return;
+      rec.buyEn = en;
+      writeRow_(row, rec);
+    });
+  });
+  return tasks;
+}
+
+function translateBuy_(word) {
+  if (!/[\u4e00-\u9fff]/.test(word)) return text_(word, 100);
+  try {
+    return text_(LanguageApp.translate(word, 'zh-CN', 'en'), 100);
+  } catch (e) {
+    console.error('translate: ' + (e && e.message));
+    return '';
+  }
 }
 
 /* ---------- ideas ---------- */

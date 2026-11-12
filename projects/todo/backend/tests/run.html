@@ -156,6 +156,9 @@ ok('lead', { d: repeatLead('1d'), w: repeatLead('1w'), w2: repeatLead('2w'), m: 
 ok('isRepeat', { a: isRepeat('1.5m'), b: isRepeat('0m'), c: isRepeat('-1d'), d: isRepeat('400m'), e: isRepeat('12m'), f: isRepeat('366d'), g: isRepeat('w3'), h: isRepeat('m31'), i: isRepeat('1.5'), j: isRepeat('') },
   { a: true, b: false, c: false, d: false, e: true, f: true, g: true, h: true, i: false, j: false });
 
+// Shopping search word.
+ok('buy word', { a: buyWord('买维生素D'), b: buyWord('去超市购买尿布'), c: buyWord('buy milk powder'), d: buyWord('尿布') }, { a: '维生素D', b: '尿布', c: 'milk powder', d: '尿布' });
+
 // Ideas and notes.
 var ideasNow = [
   { id: 'i1', text: '做个自动给发票分类的流程', stage: 'doing', updatedAt: '2026-10-01T09:00:00' },

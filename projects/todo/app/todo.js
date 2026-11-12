@@ -124,6 +124,7 @@
         queue.shift();
         problem = '';
         if (item.action === 'todoAdd') applyAdded(item.payload.id, res.tasks);
+        if (item.action === 'todoUpdate' && res && res.buyEn !== undefined) applyBuyEn(item.payload.id, res.buyEn);
         if (res && res.idea) applyIdea(res.idea);
         save();
         next();
@@ -160,6 +161,13 @@
     var at = ideas.findIndex(function (i) { return i.id === idea.id; });
     // Updated in place, so a screen that holds this idea keeps working on the live copy.
     if (at >= 0) Object.assign(ideas[at], idea);
+  }
+  /** English search words made by the backend after an edit. */
+  function applyBuyEn(id, en) {
+    var t = findTask(id);
+    if (!t || queue.some(function (q) { return q.payload.id === id; })) return;
+    t.buyEn = en;
+    if (!busy()) draw();
   }
   function refresh() {
     if (!connected() || queue.length) return Promise.resolve();
@@ -273,7 +281,7 @@
     t.status = 'done';
     t.doneAt = nowStr();
     if (nextId) {
-      list.push({ id: nextId, text: t.text, due: nextDue, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: nowStr(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(t.repeat)) });
+      list.push({ id: nextId, text: t.text, due: nextDue, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: nowStr(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(t.repeat)), buyEn: t.buyEn || '' });
     }
     enqueue('todoUpdate', { id: t.id, status: 'done', doneAt: t.doneAt, nextId: nextId });
     save();
@@ -295,21 +303,50 @@
   }
 
   /* ---------- the list ---------- */
-  function shopeeLink(t) {
-    var word = t.text.replace(/^.*?(?:购买|买)/, '').replace(/^\s*buy\s+/i, '').trim() || t.text;
-    return h('a', { class: 'shop', href: 'https://shopee.sg/search?keyword=' + encodeURIComponent(word), target: '_blank', rel: 'noopener', 'aria-label': '在 Shopee 搜 ' + word }, 'Shopee');
+  /*
+   * Shops for 买东西 tasks. JD and PDD open their app by its own link and fall back to the shop's
+   * website if nothing opened; Shopee's web address opens its app when iOS hands it over.
+   * JD and PDD search in Chinese, Shopee in English (buyEn, made by the backend; Chinese until then).
+   */
+  var SHOPS = [
+    { name: '京东', app: function (w) { return 'openapp.jdmobile://virtual?params=' + encodeURIComponent(JSON.stringify({ category: 'jump', des: 'productList', keyWord: w })); },
+      web: function (w) { return 'https://so.m.jd.com/ware/search.action?keyword=' + encodeURIComponent(w); } },
+    { name: '拼多多', app: function (w) { return 'pinduoduo://com.xunmeng.pinduoduo/search_result.html?search_key=' + encodeURIComponent(w); },
+      web: function (w) { return 'https://mobile.yangkeduo.com/search_result.html?search_key=' + encodeURIComponent(w); } },
+    { name: 'Shopee', english: true, web: function (w) { return 'https://shopee.sg/search?keyword=' + encodeURIComponent(w); } }
+  ];
+  function openApp(appUrl, webUrl) {
+    var left = false;
+    function away() { if (document.visibilityState === 'hidden') left = true; }
+    document.addEventListener('visibilitychange', away);
+    location.href = appUrl;
+    setTimeout(function () {
+      document.removeEventListener('visibilitychange', away);
+      if (left || document.visibilityState !== 'visible') return;
+      if (!window.open(webUrl, '_blank')) location.href = webUrl;
+    }, 1600);
+  }
+  function shopBar(t) {
+    var zh = buyWord(t.text), en = t.buyEn || zh;
+    return h('div', { class: 'shops' }, SHOPS.map(function (s) {
+      var word = s.english ? en : zh;
+      return h('a', { class: 'shop', href: s.web(word), target: '_blank', rel: 'noopener', 'aria-label': '在' + s.name + '搜 ' + word, onclick: function (e) {
+        if (!s.app) return;
+        e.preventDefault();
+        openApp(s.app(word), s.web(word));
+      } }, s.name);
+    }));
   }
   function taskRow(t, today) {
     var tick = h('button', { class: 'tick', 'aria-label': '完成 ' + t.text });
     tick.innerHTML = '<span class="ring"><svg viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9"/></svg></span>';
-    var row = h('div', { class: 'row' }, tick,
-      h('button', { class: 'row-main', onclick: function () { openEdit(t); } },
+    var main = h('button', { class: 'row-main', onclick: function () { openEdit(t); } },
         h('div', { class: 'row-text' }, t.text),
         h('div', { class: 'row-meta' },
           h('span', { class: t.due < today ? 'late' : '' }, dueLabel(t.due, today)),
           isWaiting(t, today) ? ' · ' + monthDay(t.showFrom) + '出现' : null,
-          t.repeat ? ' · ' + repeatLabel(t.repeat) : null)),
-      t.group === '买东西' ? shopeeLink(t) : null);
+          t.repeat ? ' · ' + repeatLabel(t.repeat) : null));
+    var row = h('div', { class: 'row' }, tick, t.group === '买东西' ? h('div', { class: 'row-body' }, main, shopBar(t)) : main);
     tick.addEventListener('click', function () { complete(t, row, tick); });
     return row;
   }
@@ -705,7 +742,10 @@
           dateBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(q[1] === due), onclick: function () { due = q[1]; date.value = due; drawDates(); } }, q[0]));
         });
       }
+      var buyEn = h('input', { type: 'text', value: t.buyEn || '', placeholder: '保存后自动翻译', autocapitalize: 'off', 'aria-label': 'Shopee 搜索词（英文）' });
+      var buyField = h('label', { class: 'field' }, 'Shopee 搜索词（英文）', buyEn);
       function drawGroups() {
+        buyField.hidden = group !== '买东西';
         groupBox.replaceChildren();
         TODO_GROUPS.concat([TODO_NO_GROUP]).forEach(function (g) {
           groupBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(g === group), onclick: function () { group = g; drawGroups(); } }, GROUP_ICONS[g] + ' ' + g));
@@ -733,6 +773,7 @@
         h('label', { class: 'field' }, '内容', text),
         h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '什么时候'), dateBox, date),
         h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '分组'), groupBox),
+        buyField,
         h('div', { class: 'stack tight' }, h('label', { class: 'field' }, '重复', repeat), custom),
         t.raw && t.raw !== t.text ? h('div', { class: 'small muted' }, '你说的原话：' + t.raw) : null,
         h('div', { class: 'btn-row' },
@@ -752,8 +793,14 @@
               if (!isRepeat(every)) return toast('重复间隔要大于 0，最长一年');
             }
             if (due !== t.due) t.showFrom = '';
+            var change = { id: t.id, text: newText, due: due, group: group, repeat: every };
+            // English typed by hand is sent; otherwise a new text is translated again by the backend.
+            var typed = buyEn.value.trim();
+            if (typed !== (t.buyEn || '')) change.buyEn = typed;
+            else if (newText !== t.text) t.buyEn = '';
             Object.assign(t, { text: newText, due: due, group: group, repeat: every });
-            enqueue('todoUpdate', { id: t.id, text: newText, due: due, group: group, repeat: every });
+            if (change.buyEn !== undefined) t.buyEn = change.buyEn;
+            enqueue('todoUpdate', change);
             save();
             close();
           } }, '保存')));

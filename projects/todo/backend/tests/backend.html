@@ -38,6 +38,13 @@ window.SpreadsheetApp = { getActiveSpreadsheet: () => ({
   window.Utilities = { getUuid: () => 'u', formatDate: (d, tz, f) => { const s = new Date(d.getTime() + 8 * 3600e3).toISOString(); return f === 'yyyy-MM-dd' ? s.slice(0, 10) : s.slice(0, 19); } };
   window.ContentService = { MimeType: { JSON: 'j', TEXT: 't' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) };
   window.ScriptApp = {};
+  var translations = [];
+  window.LanguageApp = { translate: (s, from, to) => {
+    assert.strictEqual(lockHeld, 0, 'translating must not hold the lock'); assert.strictEqual(from + '>' + to, 'zh-CN>en');
+    translations.push(s);
+    const dict = { 尿布: 'diapers', 维生素D: 'vitamin D', 湿巾: 'wet wipes', 婴儿湿巾: 'baby wipes' };
+    if (s === '坏掉') throw new Error('quota'); return dict[s] || 'thing';
+  } };
   window.UrlFetchApp = { fetch: (url, o) => { assert.strictEqual(lockHeld, 0, 'AI call must not hold the lock'); fetches.push({ url, o }); return aiReply(); } };
 </script>
 <!-- Ai.gs first on purpose: Apps Script does not promise the parser loads before it. -->
@@ -60,13 +67,26 @@ assert.strictEqual(JSON.parse(doPost({ postData: { contents: '{"token":"no","act
 aiReply = () => { throw new Error('should not be called'); };
 let r = call({ action: 'todoAdd', id: 'a', text: '买尿布,两周内' });
 assert(r.ok, r.error); assert.strictEqual(fetches.length, 0); assert.strictEqual(r.data.tasks[0].text, '买尿布'); assert.strictEqual(grid.length, 2);
+assert.strictEqual(r.data.tasks[0].buyEn, 'diapers', 'shopping gets English search words'); assert.strictEqual(row('a')[10], 'diapers');
+assert.strictEqual(grid[0][10], 'buyEn', 'old sheet gets the buyEn title');
 
 
 // Retrying the same id does not duplicate.
 call({ action: 'todoAdd', id: 'a', text: '买尿布,两周内' }); assert.strictEqual(grid.length, 2);
 
-// Shortcut: no id.
-r = call({ action: 'todoAdd', text: '明天转账' }); assert(r.ok); assert.strictEqual(grid.length, 3);
+// Shortcut: no id. Not shopping, so nothing is translated.
+translations = [];
+r = call({ action: 'todoAdd', text: '明天转账' }); assert(r.ok); assert.strictEqual(grid.length, 3); assert.strictEqual(translations.length, 0);
+// Translation failing keeps the task, with no English.
+r = call({ action: 'todoAdd', id: 'tr1', text: '买坏掉' }); assert(r.ok, r.error); assert.strictEqual(row('tr1')[10] || '', '');
+// English text is used as it is.
+translations = []; r = call({ action: 'todoAdd', id: 'tr2', text: 'buy milk powder' }); assert.strictEqual(r.data.tasks[0].buyEn, 'milk powder'); assert.strictEqual(translations.length, 0);
+// A new text is translated again; English set by hand is kept until the text changes.
+r = call({ action: 'todoUpdate', id: 'a', text: '买婴儿湿巾' }); assert(r.ok, r.error); assert.strictEqual(r.data.buyEn, 'baby wipes'); assert.strictEqual(row('a')[10], 'baby wipes');
+r = call({ action: 'todoUpdate', id: 'a', buyEn: 'huggies wipes' }); assert.strictEqual(row('a')[10], 'huggies wipes'); assert.strictEqual(r.data.buyEn, undefined);
+r = call({ action: 'todoUpdate', id: 'a', due: '2030-01-01' }); assert.strictEqual(row('a')[10], 'huggies wipes', 'other edits keep it');
+r = call({ action: 'todoUpdate', id: 'a', text: '买婴儿湿巾', buyEn: 'pampers wipes' }); assert.strictEqual(row('a')[10], 'pampers wipes');
+r = call({ action: 'todoUpdate', id: 'a', text: '买尿布' }); assert.strictEqual(row('a')[10], 'diapers');
 
 // Long sentence: AI splits it, and the request has the right shape.
 aiReply = claudeSays([{ text: '买维生素D', due: '2030-01-05', group: '买东西', repeat: '' }, { text: '车保养', due: '2030-01-06', group: '出门办', repeat: '1m' }]);
