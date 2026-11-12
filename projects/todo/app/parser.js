@@ -395,6 +395,24 @@ function addNote(notes, line) {
   if (lines.indexOf(line) >= 0) return lines.join('\n');
   return [line].concat(lines).join('\n');
 }
+/** A finished note starts with ✓, so it reads plainly in the sheet: "✓ 2026-11-12 先用 Gmail 标签". */
+var NOTE_DONE_ = '✓ ';
+function noteDone(line) { return String(line).indexOf(NOTE_DONE_) === 0; }
+/** { done, day, text } for showing one note line. */
+function readNote(line) {
+  var done = noteDone(line), rest = done ? line.slice(NOTE_DONE_.length) : line;
+  return { done: done, day: rest.slice(0, 10), text: rest.slice(11) };
+}
+/** Ticks an open note or unticks a finished one. The line may be given in either form. */
+function toggleNote(notes, line) {
+  var lines = notes ? String(notes).split('\n') : [];
+  var plain = noteDone(line) ? line.slice(NOTE_DONE_.length) : line;
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i] === plain) { lines[i] = NOTE_DONE_ + plain; break; }
+    if (lines[i] === NOTE_DONE_ + plain) { lines[i] = plain; break; }
+  }
+  return lines.join('\n');
+}
 function removeNote(notes, line) {
   var lines = notes ? String(notes).split('\n') : [], at = lines.indexOf(line);
   if (at >= 0) lines.splice(at, 1);

@@ -59,6 +59,7 @@
       ['text', 'kind'].forEach(function (k) { if (req[k] !== undefined) it[k] = req[k]; });
       if (req.stage !== undefined && req.stage !== it.stage) { it.stage = req.stage; it.stageAt = now(); }
       if (req.removeNote) it.notes = removeNote(it.notes, req.removeNote);
+      if (req.toggleNote) it.notes = toggleNote(it.notes, req.toggleNote);
       if (req.note) it.notes = addNote(it.notes, req.note);
       it.updatedAt = now();
       keep();

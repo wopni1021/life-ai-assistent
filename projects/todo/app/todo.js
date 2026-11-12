@@ -445,14 +445,23 @@
         h('button', { class: 'btn ghost', onclick: close }, '不移了'));
     });
   }
-  function noteList(idea, onRemove) {
+  /** Open notes first, newest first; finished ones below, struck through. */
+  function noteList(idea, onToggle, onRemove) {
     var lines = idea.notes ? idea.notes.split('\n') : [];
     if (!lines.length) return h('p', { class: 'small muted' }, '还没有补充。想到什么就加上。');
-    return h('div', { class: 'notes' }, lines.map(function (line) {
-      return h('div', { class: 'note' },
-        h('div', { class: 'note-body' }, h('span', { class: 'note-day' }, monthDay(line.slice(0, 10))), ' ', line.slice(11)),
-        onRemove ? h('button', { class: 'link', 'aria-label': '删掉这条', onclick: function () { onRemove(line); } }, '删') : null);
+    var open = lines.filter(function (l) { return !noteDone(l); }), done = lines.filter(noteDone);
+    return h('div', { class: 'notes' }, open.concat(done).map(function (line) {
+      var n = readNote(line);
+      var tick = h('button', { class: 'tick small' + (n.done ? ' on' : ''), 'aria-label': (n.done ? '标为没做完 ' : '做完了 ') + n.text, onclick: function () { onToggle(line); } });
+      tick.innerHTML = '<span class="ring"><svg viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9"/></svg></span>';
+      return h('div', { class: 'note' + (n.done ? ' done' : '') }, tick,
+        h('div', { class: 'note-body' }, h('span', { class: 'note-day' }, monthDay(n.day)), ' ', h('span', { class: 'note-text' }, n.text)),
+        h('button', { class: 'link', 'aria-label': '删掉这条', onclick: function () { onRemove(line); } }, '删'));
     }));
+  }
+  function noteCounts(idea) {
+    var lines = idea.notes ? idea.notes.split('\n') : [], done = lines.filter(noteDone).length;
+    return { open: lines.length - done, done: done };
   }
   function openQuickNote(idea) {
     var box = h('textarea', { rows: 3, lang: 'zh-CN', enterkeyhint: 'send', placeholder: '按麦克风说补充的内容', 'aria-label': '补充 ' + idea.text });
@@ -496,6 +505,14 @@
       }
       function drawNotes() {
         notesBox.replaceChildren(noteList(idea, function (line) {
+          var finishing = !noteDone(line);
+          idea.notes = toggleNote(idea.notes, line);
+          idea.updatedAt = nowStr();
+          enqueue('ideaUpdate', { id: idea.id, toggleNote: line });
+          save();
+          if (finishing) { haptic(); ding([880, 1320]); }
+          drawNotes();
+        }, function (line) {
           idea.notes = removeNote(idea.notes, line);
           enqueue('ideaUpdate', { id: idea.id, removeNote: line });
           save();
@@ -557,8 +574,9 @@
     });
   }
   function ideaRow(idea, today) {
-    var stale = ideaStale(idea, today), latest = idea.notes ? idea.notes.split('\n')[0].slice(11) : '';
-    var notes = idea.notes ? idea.notes.split('\n').length : 0;
+    var stale = ideaStale(idea, today), counts = noteCounts(idea);
+    var openLine = (idea.notes ? idea.notes.split('\n') : []).filter(function (l) { return !noteDone(l); })[0];
+    var latest = openLine ? readNote(openLine).text : '';
     var doingDays = idea.stage === 'doing' ? Math.max(0, daysBetween_(String(idea.stageAt || idea.createdAt).slice(0, 10), today)) : -1;
     return h('div', { class: 'row idea' + (stale ? ' stale' : '') },
       h('button', { class: 'row-main', onclick: function () { openIdea(idea); } },
@@ -567,7 +585,8 @@
         h('div', { class: 'row-meta' },
           state.kind === 'all' ? KIND_ICONS[idea.kind] + ' ' + idea.kind : null,
           doingDays >= 0 ? (state.kind === 'all' ? ' · ' : '') + '在做 ' + doingDays + ' 天' : null,
-          notes ? ' · 📝 ' + notes : null),
+          counts.open ? ' · 📝 待改 ' + counts.open : null,
+          counts.done ? ' · 已改 ' + counts.done : null),
         stale ? h('div', { class: 'nudge' }, '好一阵没动了。先做出一个能用的版本？') : null),
       h('button', { class: 'plus', 'aria-label': '补充 ' + idea.text, onclick: function () { openQuickNote(idea); } }, '＋'));
   }

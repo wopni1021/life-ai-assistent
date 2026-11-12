@@ -163,6 +163,8 @@ const stageAt = irow('i2')[8]; assert(stageAt);
 call({ action: 'ideaUpdate', id: 'i2', kind: '新东西', text: '记账表模板' }); assert.strictEqual(irow('i2')[2], '新东西'); assert.strictEqual(irow('i2')[1], '记账表模板');
 call({ action: 'ideaUpdate', id: 'i2', note: '2026-11-01 第一版' }); call({ action: 'ideaUpdate', id: 'i2', note: '第二版' });
 assert.strictEqual(irow('i2')[4], today + ' 第二版\n2026-11-01 第一版');
+call({ action: 'ideaUpdate', id: 'i2', toggleNote: '2026-11-01 第一版' }); assert.strictEqual(irow('i2')[4], today + ' 第二版\n✓ 2026-11-01 第一版');
+call({ action: 'ideaUpdate', id: 'i2', toggleNote: '✓ 2026-11-01 第一版' }); assert.strictEqual(irow('i2')[4], today + ' 第二版\n2026-11-01 第一版');
 call({ action: 'ideaUpdate', id: 'i2', removeNote: '2026-11-01 第一版' }); assert.strictEqual(irow('i2')[4], today + ' 第二版');
 assert(!call({ action: 'ideaUpdate', id: 'i2', stage: 'later' }).ok);
 assert(!call({ action: 'ideaUpdate', id: 'i2', kind: 'x' }).ok);

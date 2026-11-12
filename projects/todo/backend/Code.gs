@@ -313,7 +313,8 @@ function ideaAdd_(req) {
 }
 
 /**
- * Edits an idea: text, kind, stage, note (a dated line to add), removeNote (a line to take out), or remove: true.
+ * Edits an idea: text, kind, stage, note (a dated line to add), toggleNote (a line to tick or untick),
+ * removeNote (a line to take out), or remove: true.
  * Adding the same note line twice keeps one, so a retry is harmless.
  */
 function ideaUpdate_(req) {
@@ -344,6 +345,7 @@ function applyIdeaUpdate_(req) {
     rec.stage = req.stage;
   }
   if (req.removeNote) rec.notes = removeNote(rec.notes, String(req.removeNote));
+  if (req.toggleNote) rec.notes = toggleNote(rec.notes, String(req.toggleNote));
   if (req.note) {
     var line = text_(req.note, 520);
     if (!/^\d{4}-\d{2}-\d{2} \S/.test(line)) line = noteLine(todayStr_(), line);

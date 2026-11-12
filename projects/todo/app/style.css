@@ -102,6 +102,11 @@ header.top { display: flex; align-items: center; gap: 4px; padding: 8px 0 6px; }
 .note-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .note-day { font-size: 12px; font-weight: 600; color: var(--muted); }
 .note .link { min-height: 36px; }
+.tick.small { flex: 0 0 40px; min-height: 40px; align-self: flex-start; margin: -6px 0 -6px -8px; }
+.tick.small .ring { width: 24px; height: 24px; }
+.tick.small .ring svg { width: 16px; height: 16px; }
+.note.done .note-text { text-decoration: line-through; color: var(--muted); }
+.note.done .note-day { opacity: .7; }
 .picks { display: flex; flex-direction: column; gap: 8px; }
 .pick { min-height: 52px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: left; font-weight: 600; overflow-wrap: anywhere; }
 .shop { flex: 0 0 auto; margin-right: 10px; min-height: 44px; display: grid; place-items: center; padding: 0 12px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 700; text-decoration: none; }

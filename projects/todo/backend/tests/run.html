@@ -182,6 +182,11 @@ ok('stale after 3 weeks in doing', { a: ideaStale(ideasNow[0], '2026-10-22'), b:
 ok('notes newest first, no repeats', { v: addNote(addNote('', '2026-11-01 a'), '2026-11-02 b') }, { v: '2026-11-02 b\n2026-11-01 a' });
 ok('same note twice', { v: addNote('2026-11-01 a', '2026-11-01 a') }, { v: '2026-11-01 a' });
 ok('remove a note', { v: removeNote('2026-11-02 b\n2026-11-01 a', '2026-11-02 b') }, { v: '2026-11-01 a' });
+ok('tick a note', { v: toggleNote('2026-11-02 b\n2026-11-01 a', '2026-11-01 a') }, { v: '2026-11-02 b\n✓ 2026-11-01 a' });
+ok('untick a note', { v: toggleNote('✓ 2026-11-01 a', '✓ 2026-11-01 a') }, { v: '2026-11-01 a' });
+ok('untick given the plain line', { v: toggleNote('✓ 2026-11-01 a', '2026-11-01 a') }, { v: '2026-11-01 a' });
+ok('read a finished note', readNote('✓ 2026-11-01 先用 Gmail'), { done: true, day: '2026-11-01', text: '先用 Gmail' });
+ok('read an open note', readNote('2026-11-01 先用 Gmail'), { done: false, day: '2026-11-01', text: '先用 Gmail' });
 ok('note line is one line', { v: noteLine('2026-11-01', ' a\n b ') }, { v: '2026-11-01 a b' });
 
 // When AI is called.
