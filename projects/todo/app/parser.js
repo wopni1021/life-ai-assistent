@@ -1,5 +1,5 @@
 /*
- * Turns one spoken sentence into a task, with no AI and no API key.
+ * Turns one spoken sentence into a task, an idea or a note on an idea, with no AI and no API key.
  * Pure functions only. The phone app loads this file, and the same file is pasted into
  * Apps Script as TodoParser, so there is one copy. Dates are 'yyyy-mm-dd' strings.
  */
@@ -292,4 +292,111 @@ function parseTodo(raw, today) {
     group: guessGroup(clean),
     repeat: repeat
   };
+}
+
+/* ---------- ideas ---------- */
+
+var IDEA_KINDS = ['改进', '新东西', '赚钱'];
+var IDEA_DEFAULT_KIND = '新东西';
+/** new: just logged. doing: being built. usable: works, still being improved. shelved: put aside. */
+var IDEA_STAGES = ['new', 'doing', 'usable', 'shelved'];
+/** An idea left in 'doing' this long without an update gets a gentle nudge to ship a usable version. */
+var IDEA_STALE_DAYS = 21;
+// 想法子 means "find a way", so it stays a todo.
+var IDEA_KEY_ = /^(?:想法(?!子)|灵感|点子|ideas?\b)[\s:,.;!、。…-]*/i;
+// 补充剂 is a supplement, and 补充维生素 has no separator after a name, so both stay todos.
+var NOTE_KEY_ = /^补充(?!剂)\s*/;
+var NOTE_SEP_ = /\s*[:;,.!?、。]\s*/;
+var IDEA_KIND_RULES_ = [
+  ['赚钱', /赚钱|挣钱|收入|副业|变现|收费|付费|卖|客户|生意|money|income|sell|paid|revenue/i],
+  ['改进', /改进|优化|改一下|改成|加个|加一个|增加|新增|功能|app|应用|待办|记账|todo|improve/i]
+];
+
+/** The idea text when the sentence starts with 想法, 灵感, 点子 or idea; otherwise null. */
+function isIdea(raw) {
+  var s = halfWidth_(String(raw || '')).trim(), m = IDEA_KEY_.exec(s);
+  if (!m) return null;
+  var rest = fullComma_(s.slice(m[0].length).trim());
+  return rest ? rest.slice(0, 500) : null;
+}
+
+function ideaKind(text) {
+  for (var i = 0; i < IDEA_KIND_RULES_.length; i++) if (IDEA_KIND_RULES_[i][1].test(text)) return IDEA_KIND_RULES_[i][0];
+  return IDEA_DEFAULT_KIND;
+}
+
+function ideaStale(idea, today) {
+  if (idea.stage !== 'doing') return false;
+  var since = String(idea.updatedAt || idea.createdAt || today).slice(0, 10);
+  return daysBetween_(since, today) >= IDEA_STALE_DAYS;
+}
+
+/**
+ * "补充 发票流程：先用 Gmail 标签" gives { name: '发票流程', note: '先用 Gmail 标签' }.
+ * "补充：先用 Gmail 标签" gives an empty name, meaning the idea updated last. Otherwise null.
+ */
+function parseNote_(raw) {
+  var s = halfWidth_(String(raw || '')).trim(), m = NOTE_KEY_.exec(s);
+  if (!m) return null;
+  var rest = s.slice(m[0].length), lead = /^[:;,.!?、。]\s*/.exec(rest);
+  if (lead) return { name: '', note: rest.slice(lead[0].length).trim() };
+  var sep = NOTE_SEP_.exec(rest) || /\s+/.exec(rest);
+  if (!sep) return null;
+  return { name: rest.slice(0, sep.index).trim(), note: rest.slice(sep.index + sep[0].length).trim() };
+}
+
+function bigrams_(s) {
+  s = halfWidth_(String(s || '')).toLowerCase().replace(/[\s.,:;!?'"()\[\]、。，：；！？“”‘’（）…\-]/g, '');
+  var out = {};
+  if (s.length === 1) out[s] = true;
+  for (var i = 0; i + 1 < s.length; i++) out[s.substr(i, 2)] = true;
+  return out;
+}
+function byRecent_(a, b) { return String(a.updatedAt || a.createdAt) < String(b.updatedAt || b.createdAt) ? 1 : -1; }
+
+/**
+ * The idea a note is meant for. With a name: the idea sharing at least half of its two-character
+ * pieces, best first. Without one: the idea updated most recently, leaving out shelved ones.
+ */
+function matchIdea(name, ideas) {
+  ideas = (ideas || []).slice().sort(byRecent_);
+  if (!name) return ideas.filter(function (i) { return i.stage !== 'shelved'; })[0] || null;
+  var want = Object.keys(bigrams_(name)), best = null, bestScore = 0.5;
+  if (!want.length) return null;
+  ideas.forEach(function (idea) {
+    var have = bigrams_(idea.text), shared = want.filter(function (g) { return have[g]; }).length;
+    var score = shared / want.length;
+    if (score > bestScore || (score === bestScore && !best)) { best = idea; bestScore = score; }
+  });
+  return best;
+}
+
+/**
+ * What one sentence is: { type: 'note', id, note }, { type: 'idea', text, kind } or { type: 'todo' }.
+ * A 补充 that names no known idea stays a todo, so "补充维生素D，两周内" is still a chore.
+ */
+function readCapture(raw, ideas) {
+  var n = parseNote_(raw);
+  if (n && n.note) {
+    var note = fullComma_(n.note).slice(0, 500);
+    var target = matchIdea(n.name, ideas);
+    if (target) return { type: 'note', id: target.id, note: note };
+    if (!n.name) return { type: 'idea', text: note, kind: ideaKind(note) };
+  }
+  var idea = isIdea(raw);
+  if (idea) return { type: 'idea', text: idea, kind: ideaKind(idea) };
+  return { type: 'todo' };
+}
+
+/** Notes are dated lines, newest first, so the sheet stays readable. */
+function noteLine(day, text) { return day + ' ' + String(text || '').replace(/\s*\n+\s*/g, ' ').trim(); }
+function addNote(notes, line) {
+  var lines = notes ? String(notes).split('\n') : [];
+  if (lines.indexOf(line) >= 0) return lines.join('\n');
+  return [line].concat(lines).join('\n');
+}
+function removeNote(notes, line) {
+  var lines = notes ? String(notes).split('\n') : [], at = lines.indexOf(line);
+  if (at >= 0) lines.splice(at, 1);
+  return lines.join('\n');
 }

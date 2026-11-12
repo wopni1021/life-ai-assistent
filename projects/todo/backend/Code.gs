@@ -1,11 +1,14 @@
 /**
  * Todo backend, bound to its own "Life Todos" sheet. Deployed as a web app (Execute as: me, Access: Anyone).
  * Every request is a POST with a JSON body: { token, action, ...fields }. The secret token is the real protection.
- * Actions: todoList, todoAdd, todoUpdate. The app and the iPhone Shortcut both use todoAdd.
+ * Actions: todoList, todoAdd, todoUpdate, ideaAdd, ideaUpdate. The app and the iPhone Shortcut both use todoAdd.
+ * todoAdd also takes ideas (a sentence starting with 想法) and notes on them (starting with 补充), so the Shortcut needs no change.
  */
 
 var TZ = 'Asia/Singapore';
 var TODO_HEAD = ['id', 'text', 'due', 'group', 'repeat', 'status', 'raw', 'createdAt', 'doneAt', 'showFrom'];
+var IDEA_HEAD = ['id', 'text', 'kind', 'stage', 'notes', 'raw', 'createdAt', 'updatedAt', 'stageAt'];
+var HEADS_ = { Todos: TODO_HEAD, Ideas: IDEA_HEAD };
 var DONE_KEEP_DAYS = 30;
 var MAX_BAD_TOKENS_PER_HOUR = 20;
 
@@ -69,6 +72,8 @@ function handle_(req) {
   if (req.action === 'todoList') return todoList_();
   if (req.action === 'todoAdd') return todoAdd_(req);
   if (req.action === 'todoUpdate') return withLock_(function () { return todoUpdate_(req); });
+  if (req.action === 'ideaAdd') return withLock_(function () { return ideaAdd_(req); });
+  if (req.action === 'ideaUpdate') return withLock_(function () { return ideaUpdate_(req); });
   throw new Error('unknown action');
 }
 
@@ -84,18 +89,26 @@ function withLock_(fn) {
 
 /* ---------- sheet ---------- */
 
-var headerChecked_ = false;
-function sheet_() {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Todos');
-  if (!headerChecked_) {
-    headerChecked_ = true;
-    ensureHeader_(sh);
+var headerChecked_ = {};
+/** The Todos tab, or another one by name. The Ideas tab is made the first time it is needed, so a deploy needs no manual step. */
+function sheet_(name) {
+  name = name || 'Todos';
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, HEADS_[name].length).setValues([HEADS_[name]]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.getRange(2, 1, sh.getMaxRows() - 1, HEADS_[name].length).setNumberFormat('@');
+  }
+  if (!headerChecked_[name]) {
+    headerChecked_[name] = true;
+    ensureHeader_(sh, HEADS_[name]);
   }
   return sh;
 }
 /** A sheet made before a column was added gets its title, so a deploy needs no manual step. */
-function ensureHeader_(sh) {
-  if (!sh.getRange(1, TODO_HEAD.length).getValue()) sh.getRange(1, 1, 1, TODO_HEAD.length).setValues([TODO_HEAD]);
+function ensureHeader_(sh, head) {
+  if (!sh.getRange(1, head.length).getValue()) sh.getRange(1, 1, 1, head.length).setValues([head]);
 }
 function todayStr_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
 function nowStr_() { return Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd'T'HH:mm:ss"); }
@@ -118,8 +131,18 @@ function loadTodos_() {
   });
 }
 
-function rowOf_(id) {
-  var sh = sheet_(), n = sh.getLastRow();
+function loadIdeas_() {
+  var sh = sheet_('Ideas'), n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, IDEA_HEAD.length).getValues().map(function (r) {
+    var o = {};
+    IDEA_HEAD.forEach(function (h, i) { o[h] = cellStr_(r[i], /At$/.test(h) ? "yyyy-MM-dd'T'HH:mm:ss" : 'yyyy-MM-dd'); });
+    return o;
+  });
+}
+
+function rowOf_(id, name) {
+  var sh = sheet_(name), n = sh.getLastRow();
   if (n < 2) return 0;
   var ids = sh.getRange(2, 1, n - 1, 1).getValues();
   for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
@@ -134,11 +157,20 @@ function readRow_(row) {
   return rec;
 }
 
-function writeRow_(row, rec) {
-  sheet_().getRange(row, 1, 1, TODO_HEAD.length).setValues([TODO_HEAD.map(function (h) { return rec[h] === undefined ? '' : rec[h]; })]);
+function readIdeaRow_(row) {
+  var vals = sheet_('Ideas').getRange(row, 1, 1, IDEA_HEAD.length).getValues()[0], rec = {};
+  IDEA_HEAD.forEach(function (h, i) { rec[h] = cellStr_(vals[i], /At$/.test(h) ? "yyyy-MM-dd'T'HH:mm:ss" : 'yyyy-MM-dd'); });
+  return rec;
 }
 
-function appendRow_(rec) { sheet_().appendRow(TODO_HEAD.map(function (h) { return rec[h] === undefined ? '' : rec[h]; })); }
+function cells_(rec, head) { return head.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }); }
+
+function writeRow_(row, rec, name) {
+  var head = HEADS_[name || 'Todos'];
+  sheet_(name).getRange(row, 1, 1, head.length).setValues([cells_(rec, head)]);
+}
+
+function appendRow_(rec, name) { sheet_(name).appendRow(cells_(rec, HEADS_[name || 'Todos'])); }
 
 /* ---------- actions ---------- */
 
@@ -146,7 +178,8 @@ function appendRow_(rec) { sheet_().appendRow(TODO_HEAD.map(function (h) { retur
 function todoList_() {
   var since = addDays_(todayStr_(), -DONE_KEEP_DAYS);
   return {
-    todos: loadTodos_().filter(function (t) { return t.status === 'open' || t.doneAt.slice(0, 10) >= since; })
+    todos: loadTodos_().filter(function (t) { return t.status === 'open' || t.doneAt.slice(0, 10) >= since; }),
+    ideas: loadIdeas_()
   };
 }
 
@@ -170,6 +203,11 @@ function todoAdd_(req) {
   var raw = text_(req.text, 1000);
   if (!raw) throw new Error('empty text');
   var id = text_(req.id, 60) || newId_(), today = todayStr_();
+  // The app sorts ideas and notes itself and marks a todo as plain; the Shortcut leaves it to this.
+  if (!req.plain) {
+    var other = withLock_(function () { return captureIdea_(raw, id, today); });
+    if (other) return other;
+  }
   var parsed = parseTodo(raw, today);
   var rec = { id: id, text: parsed.text, due: parsed.due, group: parsed.group, repeat: parsed.repeat, status: 'open', raw: raw, createdAt: nowStr_(), doneAt: '' };
   var isNew = withLock_(function () {
@@ -240,4 +278,78 @@ function todoUpdate_(req) {
   }
   writeRow_(row, rec);
   return { id: req.id };
+}
+
+/* ---------- ideas ---------- */
+
+/** An idea or a note from todoAdd, or null when the sentence is a todo. */
+function captureIdea_(raw, id, today) {
+  var cap = readCapture(raw, loadIdeas_());
+  if (cap.type === 'idea') {
+    var rec = newIdea_(id, cap.text, cap.kind, raw);
+    if (!rowOf_(id, 'Ideas')) appendRow_(rec, 'Ideas');
+    return { tasks: [], idea: rec, message: '已记下想法：' + rec.text };
+  }
+  if (cap.type === 'note') {
+    var target = applyIdeaUpdate_({ id: cap.id, note: noteLine(today, cap.note) });
+    return { tasks: [], idea: target, message: '已补充到：' + target.text };
+  }
+  return null;
+}
+
+function newIdea_(id, text, kind, raw) {
+  var now = nowStr_();
+  return { id: id, text: text, kind: IDEA_KINDS.indexOf(kind) >= 0 ? kind : ideaKind(text), stage: 'new', notes: '', raw: raw || text, createdAt: now, updatedAt: now, stageAt: now };
+}
+
+/** A repeated id (a retry from the app) changes nothing. */
+function ideaAdd_(req) {
+  var text = text_(req.text, 500);
+  if (!text) throw new Error('empty text');
+  var id = text_(req.id, 60) || newId_();
+  var rec = newIdea_(id, text, req.kind, text_(req.raw, 1000));
+  if (!rowOf_(id, 'Ideas')) appendRow_(rec, 'Ideas');
+  return { idea: rec };
+}
+
+/**
+ * Edits an idea: text, kind, stage, note (a dated line to add), removeNote (a line to take out), or remove: true.
+ * Adding the same note line twice keeps one, so a retry is harmless.
+ */
+function ideaUpdate_(req) {
+  if (req.remove) {
+    var row = rowOf_(req.id, 'Ideas');
+    if (!row) throw new Error('not found');
+    sheet_('Ideas').deleteRow(row);
+    return { id: req.id };
+  }
+  return { idea: applyIdeaUpdate_(req) };
+}
+
+function applyIdeaUpdate_(req) {
+  var row = rowOf_(req.id, 'Ideas');
+  if (!row) throw new Error('not found');
+  var rec = readIdeaRow_(row), now = nowStr_();
+  if (req.text !== undefined) {
+    if (!text_(req.text, 500)) throw new Error('empty text');
+    rec.text = text_(req.text, 500);
+  }
+  if (req.kind !== undefined) {
+    if (IDEA_KINDS.indexOf(req.kind) < 0) throw new Error('bad kind');
+    rec.kind = req.kind;
+  }
+  if (req.stage !== undefined) {
+    if (IDEA_STAGES.indexOf(req.stage) < 0) throw new Error('bad stage');
+    if (req.stage !== rec.stage) rec.stageAt = now;
+    rec.stage = req.stage;
+  }
+  if (req.removeNote) rec.notes = removeNote(rec.notes, String(req.removeNote));
+  if (req.note) {
+    var line = text_(req.note, 520);
+    if (!/^\d{4}-\d{2}-\d{2} \S/.test(line)) line = noteLine(todayStr_(), line);
+    rec.notes = addNote(rec.notes, line);
+  }
+  rec.updatedAt = now;
+  writeRow_(row, rec, 'Ideas');
+  return rec;
 }

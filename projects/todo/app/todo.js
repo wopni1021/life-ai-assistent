@@ -36,12 +36,16 @@
   var REPEAT_UNITS = [['d', '天'], ['w', '周'], ['m', '个月']];
   var WAITED_DAYS = 3;
   var LEAVE_MS = 520;
+  var KIND_ICONS = { 改进: '🛠', 新东西: '✨', 赚钱: '💰' };
+  var STAGE_INFO = { new: ['💡', '新想法'], doing: ['🔨', '在做'], usable: ['✅', '能用了'], shelved: ['🗄', '放下'] };
+  var STAGE_HINTS = { new: '刚想到，还没动手', doing: '正在做。先做出一个能用的版本', usable: '已经能用了。之后的改进记在补充里', shelved: '先放一放，随时可以拿回来' };
 
   var cfg = { url: store.get('td_url') || '', token: store.get('td_token') || '' };
-  var state = { filter: 'all', showDone: false, showWaiting: false };
+  var state = { tab: store.get('td_tab') === 'ideas' ? 'ideas' : 'todo', filter: 'all', kind: 'all', showDone: false, showWaiting: false, showShelved: false };
   /* Saved copy of the list, and changes not yet sent. A cache on this phone; the sheet stays the source of truth. */
   var list = loadJson('td_list', null);
   var queue = loadJson('td_queue', []);
+  var ideas = loadJson('td_ideas', []);
   var flushing = false, problem = '', lastRefresh = 0, leaving = 0, lastPraise = '';
   var quiet = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -67,10 +71,10 @@
     return n < 7 ? weekName(d) : monthDay(d);
   }
   var toastTimer;
-  function toast(msg, undo) {
+  function toast(msg, undo, label) {
     var t = $('#toast');
     t.replaceChildren();
-    append(t, [h('span', null, msg), undo ? h('button', { class: 'undo', onclick: function () { t.hidden = true; undo(); } }, '撤销') : null]);
+    append(t, [h('span', null, msg), undo ? h('button', { class: 'undo', onclick: function () { t.hidden = true; undo(); } }, label || '撤销') : null]);
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.hidden = true; }, undo ? 5000 : 3200);
@@ -83,7 +87,7 @@
       .then(function (r) { return r.json(); })
       .then(function (j) { if (!j.ok) throw new Error(j.error || '出错了'); return j.data; });
   }
-  function save() { store.set('td_list', JSON.stringify(list)); store.set('td_queue', JSON.stringify(queue)); }
+  function save() { store.set('td_list', JSON.stringify(list)); store.set('td_queue', JSON.stringify(queue)); store.set('td_ideas', JSON.stringify(ideas)); }
   function open_() { return list.filter(function (t) { return t.status === 'open'; }); }
   /** The next round of a repeating task stays out of sight until a few days before it is due. */
   function isWaiting(t, today) { return !!t.showFrom && t.showFrom > today; }
@@ -91,6 +95,8 @@
   function nowTasks() { var t = todayStr(); return open_().filter(function (x) { return x.due <= t; }); }
   function doneOn(day) { return list.filter(function (t) { return t.status === 'done' && t.doneAt.slice(0, 10) === day; }); }
   function findTask(id) { return list.filter(function (t) { return t.id === id; })[0]; }
+  function findIdea(id) { return ideas.filter(function (i) { return i.id === id; })[0]; }
+  function short(s) { return s.length > 14 ? s.slice(0, 13) + '…' : s; }
   function busy() { return leaving > 0 || !!document.querySelector('.overlay, .party'); }
 
   /* ---------- sending ---------- */
@@ -118,6 +124,7 @@
         queue.shift();
         problem = '';
         if (item.action === 'todoAdd') applyAdded(item.payload.id, res.tasks);
+        if (res && res.idea) applyIdea(res.idea);
         save();
         next();
       }).catch(function (e) {
@@ -147,6 +154,13 @@
     if (tasks.length > 1) toast('整理成了 ' + tasks.length + ' 件');
     if (!busy()) draw();
   }
+  /** The sheet's copy of an idea replaces the local one, unless more changes to it are still waiting to be sent. */
+  function applyIdea(idea) {
+    if (queue.some(function (q) { return q.payload.id === idea.id; })) return;
+    var at = ideas.findIndex(function (i) { return i.id === idea.id; });
+    // Updated in place, so a screen that holds this idea keeps working on the live copy.
+    if (at >= 0) Object.assign(ideas[at], idea);
+  }
   function refresh() {
     if (!connected() || queue.length) return Promise.resolve();
     return api('todoList').then(function (d) {
@@ -156,6 +170,7 @@
       if (queue.length) return;
       var first = !list;
       list = d.todos;
+      ideas = d.ideas || [];
       save();
       if (first) return render();
       if (!busy()) draw();
@@ -307,8 +322,9 @@
   }
   function drawProgress() {
     var box = $('#progress'), today = todayStr();
+    if (!box) return;
     var done = doneOn(today).length, total = done + nowTasks().length;
-    box.hidden = !list || !total;
+    box.hidden = !list || !total || state.tab !== 'todo';
     if (box.hidden) return;
     $('#progress-text').textContent = done === total ? '今天 ' + done + '/' + total + ' 全部搞定 ✓' : '今天 ' + done + '/' + total;
     $('#progress-bar').style.width = Math.round(done / total * 100) + '%';
@@ -356,6 +372,8 @@
   }
   function draw() {
     if (!list || !$('#list')) return;
+    drawTabs();
+    if (state.tab === 'ideas') return drawIdeas();
     var today = todayStr(), week = addDays_(today, 7);
     var all = open_().filter(function (t) { return !isWaiting(t, today); }).sort(byDue);
     var waiting = open_().filter(function (t) { return isWaiting(t, today); }).sort(byDue);
@@ -374,24 +392,266 @@
     ].filter(Boolean));
   }
 
+  /* ---------- ideas ---------- */
+  function drawTabs() {
+    var box = $('#tabs'), open = ideas.filter(function (i) { return i.stage !== 'shelved'; }).length;
+    function tab(id, label) {
+      return h('button', { type: 'button', class: 'tab', 'aria-pressed': String(state.tab === id), onclick: function () {
+        if (state.tab === id) return;
+        state.tab = id;
+        store.set('td_tab', id);
+        render();
+        scrollTo(0, 0);
+      } }, label);
+    }
+    box.replaceChildren(tab('todo', '待办'), tab('ideas', '想法' + (open ? ' ' + open : '')));
+  }
+  function addIdea(text, kind, raw) {
+    var now = nowStr(), rec = { id: newId(), text: text, kind: kind, stage: 'new', notes: '', raw: raw || text, createdAt: now, updatedAt: now, stageAt: now };
+    ideas.push(rec);
+    enqueue('ideaAdd', { id: rec.id, text: text, kind: kind, raw: raw || text });
+    save();
+    return rec;
+  }
+  function addNoteTo(idea, text) {
+    var line = noteLine(todayStr(), text);
+    idea.notes = addNote(idea.notes, line);
+    idea.updatedAt = nowStr();
+    enqueue('ideaUpdate', { id: idea.id, note: line });
+    save();
+    draw();
+    toast('已补充到：' + short(idea.text), function () { moveNote(idea, line); }, '换一个');
+  }
+  /** The note went to the wrong idea: pick the right one. */
+  function moveNote(from, line) {
+    var others = ideas.filter(function (i) { return i.id !== from.id; }).sort(byRecent_);
+    if (!others.length) return toast('没有别的想法可以放');
+    sheet(function (close) {
+      return h('div', { class: 'card editor' },
+        h('h2', null, '放到哪个想法？'),
+        h('div', { class: 'small muted' }, line.slice(11)),
+        h('div', { class: 'picks' }, others.map(function (to) {
+          return h('button', { class: 'pick', onclick: function () {
+            from.notes = removeNote(from.notes, line);
+            to.notes = addNote(to.notes, line);
+            to.updatedAt = nowStr();
+            enqueue('ideaUpdate', { id: from.id, removeNote: line });
+            enqueue('ideaUpdate', { id: to.id, note: line });
+            save();
+            close();
+            toast('已移到：' + short(to.text));
+          } }, KIND_ICONS[to.kind] + ' ' + to.text);
+        })),
+        h('button', { class: 'btn ghost', onclick: close }, '不移了'));
+    });
+  }
+  function noteList(idea, onRemove) {
+    var lines = idea.notes ? idea.notes.split('\n') : [];
+    if (!lines.length) return h('p', { class: 'small muted' }, '还没有补充。想到什么就加上。');
+    return h('div', { class: 'notes' }, lines.map(function (line) {
+      return h('div', { class: 'note' },
+        h('div', { class: 'note-body' }, h('span', { class: 'note-day' }, monthDay(line.slice(0, 10))), ' ', line.slice(11)),
+        onRemove ? h('button', { class: 'link', 'aria-label': '删掉这条', onclick: function () { onRemove(line); } }, '删') : null);
+    }));
+  }
+  function openQuickNote(idea) {
+    var box = h('textarea', { rows: 3, lang: 'zh-CN', enterkeyhint: 'send', placeholder: '按麦克风说补充的内容', 'aria-label': '补充 ' + idea.text });
+    sheet(function (close) {
+      function addIt() {
+        var text = box.value.trim();
+        if (!text) return box.focus();
+        close();
+        addNoteTo(idea, text);
+      }
+      box.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); addIt(); }
+      });
+      return h('div', { class: 'card editor' },
+        h('div', { class: 'small muted' }, '补充到'),
+        h('div', { class: 'row-text' }, KIND_ICONS[idea.kind] + ' ' + idea.text),
+        box,
+        h('div', { class: 'btn-row' }, h('button', { class: 'btn ghost', onclick: close }, '取消'), h('button', { class: 'btn', onclick: addIt }, '加上')));
+    });
+    // Focused inside the tap, so the iPhone keyboard opens.
+    box.focus();
+  }
+  function openIdea(idea) {
+    sheet(function (close) {
+      var kind = idea.kind, stage = idea.stage, armed = false;
+      var text = h('textarea', { rows: 2, 'aria-label': '想法' }, idea.text);
+      var kindBox = h('div', { class: 'chips' }), stageBox = h('div', { class: 'chips' }), stageHint = h('div', { class: 'small muted' });
+      var notesBox = h('div');
+      function drawKinds() {
+        kindBox.replaceChildren();
+        IDEA_KINDS.forEach(function (k) {
+          kindBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(k === kind), onclick: function () { kind = k; drawKinds(); } }, KIND_ICONS[k] + ' ' + k));
+        });
+      }
+      function drawStages() {
+        stageBox.replaceChildren();
+        IDEA_STAGES.forEach(function (st) {
+          stageBox.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(st === stage), onclick: function () { stage = st; drawStages(); } }, STAGE_INFO[st][0] + ' ' + STAGE_INFO[st][1]));
+        });
+        stageHint.textContent = STAGE_HINTS[stage];
+      }
+      function drawNotes() {
+        notesBox.replaceChildren(noteList(idea, function (line) {
+          idea.notes = removeNote(idea.notes, line);
+          enqueue('ideaUpdate', { id: idea.id, removeNote: line });
+          save();
+          drawNotes();
+        }));
+      }
+      var noteBox = h('textarea', { rows: 1, lang: 'zh-CN', enterkeyhint: 'send', placeholder: '加一条补充', 'aria-label': '加一条补充' });
+      function addIt() {
+        var t = noteBox.value.trim();
+        if (!t) return noteBox.focus();
+        var line = noteLine(todayStr(), t);
+        idea.notes = addNote(idea.notes, line);
+        idea.updatedAt = nowStr();
+        enqueue('ideaUpdate', { id: idea.id, note: line });
+        save();
+        noteBox.value = '';
+        drawNotes();
+      }
+      noteBox.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); addIt(); }
+      });
+      drawKinds();
+      drawStages();
+      drawNotes();
+      var del = h('button', { class: 'btn danger', onclick: function () {
+        if (!armed) { armed = true; del.textContent = '再点一次删除'; return; }
+        ideas = ideas.filter(function (x) { return x.id !== idea.id; });
+        enqueue('ideaUpdate', { id: idea.id, remove: true });
+        save();
+        close();
+      } }, '删除');
+      return h('div', { class: 'card editor' },
+        h('label', { class: 'field' }, '想法', text),
+        h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '哪一类'), kindBox),
+        h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '进展到哪了'), stageBox, stageHint),
+        h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '补充'),
+          h('div', { class: 'capture-row' }, noteBox, h('button', { class: 'btn add', onclick: addIt }, '加')), notesBox),
+        idea.raw && idea.raw !== idea.text ? h('div', { class: 'small muted' }, '你说的原话：' + idea.raw) : null,
+        h('div', { class: 'btn-row' }, del,
+          h('button', { class: 'btn', onclick: function () {
+            var newText = text.value.trim();
+            if (!newText) return toast('想法不能是空的');
+            var change = { id: idea.id };
+            if (newText !== idea.text) change.text = idea.text = newText;
+            if (kind !== idea.kind) change.kind = idea.kind = kind;
+            var reachedUsable = stage === 'usable' && idea.stage !== 'usable';
+            if (stage !== idea.stage) { change.stage = idea.stage = stage; idea.stageAt = nowStr(); }
+            if (Object.keys(change).length > 1) {
+              idea.updatedAt = nowStr();
+              enqueue('ideaUpdate', change);
+              save();
+            }
+            close();
+            if (reachedUsable) {
+              ding([660, 880, 1100]);
+              toast('能用了 ✅ 之后的改进记在补充里');
+            }
+          } }, '保存')));
+    });
+  }
+  function ideaRow(idea, today) {
+    var stale = ideaStale(idea, today), latest = idea.notes ? idea.notes.split('\n')[0].slice(11) : '';
+    var notes = idea.notes ? idea.notes.split('\n').length : 0;
+    var doingDays = idea.stage === 'doing' ? Math.max(0, daysBetween_(String(idea.stageAt || idea.createdAt).slice(0, 10), today)) : -1;
+    return h('div', { class: 'row idea' + (stale ? ' stale' : '') },
+      h('button', { class: 'row-main', onclick: function () { openIdea(idea); } },
+        h('div', { class: 'row-text' }, idea.text),
+        latest ? h('div', { class: 'row-note' }, '└ ' + latest) : null,
+        h('div', { class: 'row-meta' },
+          state.kind === 'all' ? KIND_ICONS[idea.kind] + ' ' + idea.kind : null,
+          doingDays >= 0 ? (state.kind === 'all' ? ' · ' : '') + '在做 ' + doingDays + ' 天' : null,
+          notes ? ' · 📝 ' + notes : null),
+        stale ? h('div', { class: 'nudge' }, '好一阵没动了。先做出一个能用的版本？') : null),
+      h('button', { class: 'plus', 'aria-label': '补充 ' + idea.text, onclick: function () { openQuickNote(idea); } }, '＋'));
+  }
+  function ideaSection(stage, items, today) {
+    if (!items.length) return null;
+    return h('section', { class: stage === 'doing' ? 'now' : '' },
+      h('div', { class: 'section-head' }, h('h2', null, STAGE_INFO[stage][0] + ' ' + STAGE_INFO[stage][1]), h('span', { class: 'small muted' }, items.length + ' 个')),
+      h('div', { class: 'card list' }, items.map(function (i) { return ideaRow(i, today); })));
+  }
+  function drawIdeas() {
+    var today = todayStr();
+    if (state.kind !== 'all' && IDEA_KINDS.indexOf(state.kind) < 0) state.kind = 'all';
+    var shown = ideas.filter(function (i) { return state.kind === 'all' || i.kind === state.kind; });
+    var box = $('#chips');
+    function chip(id, label) {
+      return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(state.kind === id), onclick: function () { state.kind = id; draw(); } }, label);
+    }
+    var live = ideas.filter(function (i) { return i.stage !== 'shelved'; });
+    box.replaceChildren(chip('all', '全部 ' + live.length));
+    IDEA_KINDS.forEach(function (k) {
+      var n = live.filter(function (i) { return i.kind === k; }).length;
+      box.append(chip(k, KIND_ICONS[k] + ' ' + k + (n ? ' ' + n : '')));
+    });
+    function of(stage) { return shown.filter(function (i) { return i.stage === stage; }).sort(byRecent_); }
+    var doing = of('doing').sort(function (a, b) { return ideaStale(b, today) - ideaStale(a, today); });
+    var fresh = of('new'), usable = of('usable'), shelved = of('shelved');
+    var shelf = null;
+    if (shelved.length) {
+      var head = h('button', { class: 'trophy-head', 'aria-expanded': String(state.showShelved), onclick: function () { state.showShelved = !state.showShelved; draw(); } },
+        h('span', null, '🗄 放下的 ', h('b', null, shelved.length), ' 个'), h('span', { class: 'small muted' }, state.showShelved ? '收起' : '看看'));
+      shelf = h('section', null, h('div', { class: 'card trophy' }, head),
+        state.showShelved ? h('div', { class: 'card list' }, shelved.map(function (i) { return ideaRow(i, today); })) : null);
+    }
+    var empty = doing.length + fresh.length + usable.length ? null
+      : h('div', { class: 'card empty' }, state.kind === 'all' ? '还没有想法。说一句“想法：……”就记下。' : '这一类还没有想法。');
+    $('#list').replaceChildren.apply($('#list'), [
+      ideaSection('doing', doing, today), ideaSection('new', fresh, today), ideaSection('usable', usable, today), empty, shelf
+    ].filter(Boolean));
+  }
+
   /* ---------- logging ---------- */
+  /** In the 想法 tab every sentence is an idea, unless it is a 补充 for one. Elsewhere only 想法… and 补充… are. */
+  function readInput(text) {
+    var cap = readCapture(text, ideas);
+    if (cap.type === 'todo' && state.tab === 'ideas') {
+      var plain = fullComma_(halfWidth_(text).trim()).slice(0, 500);
+      cap = { type: 'idea', text: plain, kind: ideaKind(plain) };
+    }
+    return cap;
+  }
   function buildInput() {
-    var box = h('textarea', { id: 'capture', rows: 1, lang: 'zh-CN', enterkeyhint: 'send', placeholder: '点这里，按麦克风说话', 'aria-label': '新待办', autocomplete: 'off' });
-    var hint = h('div', { class: 'preview small muted', id: 'preview' }, '例如：买维生素D，两周内完成');
+    var onIdeas = state.tab === 'ideas';
+    var example = onIdeas ? '例如：开个网店卖手工 · 补充 网店：先问问朋友' : '例如：买维生素D，两周内完成 · 说“想法：…”记想法';
+    var box = h('textarea', { id: 'capture', rows: 1, lang: 'zh-CN', enterkeyhint: 'send', placeholder: onIdeas ? '说一个想法，或补充一个' : '点这里，按麦克风说话', 'aria-label': onIdeas ? '新想法' : '新待办', autocomplete: 'off' });
+    var hint = h('div', { class: 'preview small muted', id: 'preview' }, example);
     function resize() { box.style.height = 'auto'; box.style.height = box.scrollHeight + 2 + 'px'; }
     function preview() {
       resize();
       var text = box.value.trim();
-      if (!text) { hint.textContent = '例如：买维生素D，两周内完成'; return; }
+      if (!text) { hint.textContent = example; return; }
+      var cap = readInput(text);
+      if (cap.type === 'note') { hint.textContent = '→ 补充到：' + findIdea(cap.id).text; return; }
+      if (cap.type === 'idea') { hint.textContent = '→ 💡 想法 · ' + KIND_ICONS[cap.kind] + ' ' + cap.kind; return; }
       var p = parseTodo(text, todayStr());
       hint.textContent = '→ ' + p.text + ' · ' + monthDay(p.due) + '（' + weekName(p.due) + '）' + (p.dated ? '' : ' 默认一周') + ' · ' + p.group + (p.repeat ? ' · ' + repeatLabel(p.repeat) : '');
     }
     function add() {
       var text = box.value.trim();
       if (!text) return box.focus();
+      var cap = readInput(text);
+      if (cap.type !== 'todo') {
+        box.value = '';
+        preview();
+        box.focus();
+        if (cap.type === 'note') return addNoteTo(findIdea(cap.id), cap.note);
+        var idea = addIdea(cap.text, cap.kind, text);
+        if (state.kind !== 'all' && state.kind !== idea.kind) state.kind = 'all';
+        draw();
+        if (state.tab === 'ideas') return toast('已记下想法 · ' + KIND_ICONS[idea.kind] + ' ' + idea.kind);
+        return toast('已记下想法 💡', function () { state.tab = 'ideas'; store.set('td_tab', 'ideas'); render(); }, '去看看');
+      }
       var today = todayStr(), id = newId(), p = parseTodo(text, today);
       list.push({ id: id, text: p.text, due: p.due, group: p.group, repeat: p.repeat, status: 'open', raw: text, createdAt: nowStr(), doneAt: '' });
-      enqueue('todoAdd', { id: id, text: text });
+      enqueue('todoAdd', { id: id, text: text, plain: true });
       save();
       box.value = '';
       preview();
@@ -485,6 +745,7 @@
 
   /* ---------- setup and settings ---------- */
   function renderSetup() {
+    $('#tabs').replaceChildren('待办');
     var url = h('input', { type: 'text', placeholder: 'https://script.google.com/macros/s/.../exec', autocomplete: 'off', autocapitalize: 'off', value: cfg.url, 'aria-label': '网址' });
     var tok = h('input', { type: 'text', placeholder: '粘贴令牌', autocomplete: 'off', autocapitalize: 'off', 'aria-label': '令牌' });
     var msg = h('p', { class: 'small muted' });
@@ -495,6 +756,7 @@
         store.set('td_url', u);
         store.set('td_token', t);
         list = d.todos;
+        ideas = d.ideas || [];
         save();
         render();
       }).catch(function (e) { msg.textContent = '没连上：' + e.message; cfg = { url: '', token: '' }; });
@@ -509,6 +771,7 @@
       msg));
   }
   function renderProblem(e) {
+    $('#tabs').replaceChildren('待办');
     $('#view').replaceChildren(h('div', { class: 'card empty' },
       h('p', null, '读取不到你的待办。'), h('p', { class: 'small' }, e && e.message || ''),
       h('div', { class: 'btn-row' },
@@ -516,9 +779,10 @@
         h('button', { class: 'btn ghost', onclick: signOut }, '重新连接'))));
   }
   function signOut() {
-    ['td_url', 'td_token', 'td_list', 'td_queue', 'td_mock'].forEach(store.del);
+    ['td_url', 'td_token', 'td_list', 'td_queue', 'td_mock', 'td_ideas', 'td_mock_ideas'].forEach(store.del);
     cfg = { url: '', token: '' };
     list = null;
+    ideas = [];
     queue = [];
     problem = '';
     setStatus();

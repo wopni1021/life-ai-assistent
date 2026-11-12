@@ -156,6 +156,34 @@ ok('lead', { d: repeatLead('1d'), w: repeatLead('1w'), w2: repeatLead('2w'), m: 
 ok('isRepeat', { a: isRepeat('1.5m'), b: isRepeat('0m'), c: isRepeat('-1d'), d: isRepeat('400m'), e: isRepeat('12m'), f: isRepeat('366d'), g: isRepeat('w3'), h: isRepeat('m31'), i: isRepeat('1.5'), j: isRepeat('') },
   { a: true, b: false, c: false, d: false, e: true, f: true, g: true, h: true, i: false, j: false });
 
+// Ideas and notes.
+var ideasNow = [
+  { id: 'i1', text: '做个自动给发票分类的流程', stage: 'doing', updatedAt: '2026-10-01T09:00:00' },
+  { id: 'i2', text: '帮人做记账表赚点外快', stage: 'new', updatedAt: '2026-10-20T09:00:00' },
+  { id: 'i3', text: '旧想法', stage: 'shelved', updatedAt: '2026-10-30T09:00:00' }
+];
+ok('idea keyword', readCapture('想法：做个记账自动分类的流程', ideasNow), { type: 'idea', text: '做个记账自动分类的流程', kind: '改进' });
+ok('idea keyword, no colon', readCapture('灵感 开个网店卖手工', ideasNow), { type: 'idea', text: '开个网店卖手工', kind: '赚钱' });
+ok('idea in English', readCapture('idea: a game for the kids', ideasNow), { type: 'idea', text: 'a game for the kids', kind: '新东西' });
+ok('点子', readCapture('点子，宝宝成长相册', ideasNow), { type: 'idea', kind: '新东西' });
+ok('想法子 is a todo', readCapture('想法子修一下水管', ideasNow), { type: 'todo' });
+ok('ideally is a todo', readCapture('ideally call mum', ideasNow), { type: 'todo' });
+ok('just the keyword is a todo', readCapture('想法', ideasNow), { type: 'todo' });
+ok('note by name', readCapture('补充 发票流程：可以先用 Gmail 标签', ideasNow), { type: 'note', id: 'i1', note: '可以先用 Gmail 标签' });
+ok('note by name, comma', readCapture('补充记账表，先做三个模板', ideasNow), { type: 'note', id: 'i2', note: '先做三个模板' });
+ok('note by name, spaces', readCapture('补充 记账表 先做三个模板', ideasNow), { type: 'note', id: 'i2' });
+ok('note without name goes to the latest open idea', readCapture('补充：先问问朋友', ideasNow), { type: 'note', id: 'i2', note: '先问问朋友' });
+ok('note with no ideas yet becomes an idea', readCapture('补充：先问问朋友', []), { type: 'idea', text: '先问问朋友' });
+ok('补充 a chore stays a todo', readCapture('补充维生素D，两周内', ideasNow), { type: 'todo' });
+ok('补充剂 stays a todo', readCapture('补充剂快吃完了', ideasNow), { type: 'todo' });
+ok('note to an unknown idea stays a todo', readCapture('补充 宝宝相册：加个视频', ideasNow), { type: 'todo' });
+ok('match shelved by name', { v: (matchIdea('旧想法', ideasNow) || {}).id }, { v: 'i3' });
+ok('stale after 3 weeks in doing', { a: ideaStale(ideasNow[0], '2026-10-22'), b: ideaStale(ideasNow[0], '2026-10-21'), c: ideaStale(ideasNow[1], '2027-01-01') }, { a: true, b: false, c: false });
+ok('notes newest first, no repeats', { v: addNote(addNote('', '2026-11-01 a'), '2026-11-02 b') }, { v: '2026-11-02 b\n2026-11-01 a' });
+ok('same note twice', { v: addNote('2026-11-01 a', '2026-11-01 a') }, { v: '2026-11-01 a' });
+ok('remove a note', { v: removeNote('2026-11-02 b\n2026-11-01 a', '2026-11-02 b') }, { v: '2026-11-01 a' });
+ok('note line is one line', { v: noteLine('2026-11-01', ' a\n b ') }, { v: '2026-11-01 a b' });
+
 // When AI is called.
 function ai(s) { return needsAi_(s, parseTodo(s, TODO)); }
 ok('short phrase skips AI', { v: ai('买尿布,两周内') }, { v: false });

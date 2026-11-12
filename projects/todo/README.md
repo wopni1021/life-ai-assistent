@@ -4,10 +4,11 @@ Status: deployed automatically from GitHub. Tested with sample data and a stand-
 
 Setup steps: `backend/SETUP.md`. App: `app/`. Backend: `backend/`.
 
-Phone API (POST JSON `{token, action, ...}`): `todoList`, `todoAdd` (`{id?, text}`; returns `{tasks, message}`), `todoUpdate`. Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt, showFrom`. `status` is `open` or `done`. `repeat` is a count and unit (`1d`, `2w`, `1.5m`, `45d`: every N days, weeks, months; decimals allowed, up to a year), `w3` (every Wednesday) or `m5` (the 5th of each month). `1.5m` means one calendar month and then 15 days. `showFrom` is set only on the next round of a repeating task; until that date the task waits out of the main list. The next round is counted from the planned `due`, not the day it was finished, so finishing early or late keeps the rhythm; rounds already gone by are skipped.
+Phone API (POST JSON `{token, action, ...}`): `todoList` (returns `{todos, ideas}`), `todoAdd` (`{id?, text, plain?}`; returns `{tasks, message}`; without `plain` a sentence starting with 想法 or 补充 is filed as an idea or a note instead), `todoUpdate`, `ideaAdd` (`{id, text, kind?, raw?}`), `ideaUpdate` (`{id, text?, kind?, stage?, note?, removeNote?, remove?}`). Tab `Todos`: `id, text, due, group, repeat, status, raw, createdAt, doneAt, showFrom`. `status` is `open` or `done`. `repeat` is a count and unit (`1d`, `2w`, `1.5m`, `45d`: every N days, weeks, months; decimals allowed, up to a year), `w3` (every Wednesday) or `m5` (the 5th of each month). `1.5m` means one calendar month and then 15 days. `showFrom` is set only on the next round of a repeating task; until that date the task waits out of the main list. The next round is counted from the planned `due`, not the day it was finished, so finishing early or late keeps the rhythm; rounds already gone by are skipped.
 
 ## Goal
 - Log a chore the moment it comes to mind, by voice, mostly in Chinese.
+- Keep ideas (improving the apps, new things to build, ways to make money) in the same app but apart from the chores, and carry each from first thought to something usable.
 - Open the app and know what to do now.
 - Spend less effort remembering, and feel good finishing.
 
@@ -28,6 +29,14 @@ Where or how a task gets done, because the useful question is "what can I do fro
 - Opens from a saved copy. Unsent changes stay in a saved queue and retry, so closing the app loses nothing.
 - 买东西 tasks have a Shopee search button.
 - Finishing a task: tick animation, sparks, soft ding, varied praise, bigger reward for tasks that waited longer, a 今天 N/M progress bar, a full-screen moment when 现在要做 is cleared, and a weekly trophy count.
+
+## Ideas (想法)
+- A 待办 | 想法 switch at the top. Tab `Ideas` in the same sheet, made automatically on first use: `id, text, kind, stage, notes, raw, createdAt, updatedAt, stageAt`.
+- Logging: start with 想法, 灵感 or 点子 (or "idea:"), in the app or the Shortcut. In the 想法 tab every sentence is an idea. 想法子 ("find a way") stays a todo.
+- Kind: 改进, 新东西 or 赚钱, guessed from keywords, changed with one tap.
+- Stage: `new` 新想法 → `doing` 在做 → `usable` 能用了 (works, still being improved) → or `shelved` 放下. An idea in 在做 with no update for 21 days moves to the top with a gentle nudge to ship a usable version.
+- Notes (补充): dated lines, newest first, in the `notes` cell. By voice: "补充 发票流程：先用 Gmail 标签" goes to the idea that best matches the name (shared two-character pieces, at least half); "补充：…" with no name goes to the idea updated last. The confirmation has 换一个 to move the note. In the app, each idea has a ＋ button. A 补充 that names no known idea stays a todo, so "补充维生素D" is still a chore.
+- Ideas are not in the morning push or the 今天 count.
 
 ## Reminders
 Optional morning push through ntfy at about 8am: overdue and today's tasks, how many were finished yesterday, and how many remain this week. Nothing is sent on a day with nothing due.
@@ -51,4 +60,6 @@ None.
 - The next round waits out of sight and reappears about a fifth of the interval before it is due, between 1 and 7 days (每周 1 day, 每月 6 days, 每1.5个月 7 days; daily on the day). Waiting rounds sit behind one folded row, "安排好了 N 件", where they can be edited or finished early. Setting a new date shows the task at once. One-off tasks due later stay in 以后.
 - No daily streaks, because one missed day resets them. The weekly count only goes up. Overdue wording stays calm.
 - In-app speech recognition is left out because it is unreliable in Home Screen apps.
+- Ideas share the Todo sheet and token rather than being a separate project: one app, one Shortcut, no extra setup.
+- Ideas are never sent to AI; they are kept in your own words.
 - Left out of v1: quick re-add of past purchases, location reminders, learning from group corrections.
