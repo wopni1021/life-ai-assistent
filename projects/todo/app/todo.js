@@ -308,8 +308,8 @@
         h('div', { class: 'row-meta' },
           h('span', { class: t.due < today ? 'late' : '' }, dueLabel(t.due, today)),
           isWaiting(t, today) ? ' · ' + monthDay(t.showFrom) + '出现' : null,
-          state.filter === 'all' ? ' · ' + GROUP_ICONS[t.group] + ' ' + t.group : null,
-          t.repeat ? ' · 🔁 ' + repeatLabel(t.repeat) : null)),
+          state.filter === 'all' ? ' · ' + t.group : null,
+          t.repeat ? ' · ' + repeatLabel(t.repeat) : null)),
       t.group === '买东西' ? shopeeLink(t) : null);
     tick.addEventListener('click', function () { complete(t, row, tick); });
     return row;
@@ -338,10 +338,7 @@
       return g !== TODO_NO_GROUP || tasks.some(function (t) { return t.group === g; });
     });
     box.replaceChildren(chip('all', '全部 ' + tasks.length));
-    used.forEach(function (g) {
-      var n = tasks.filter(function (t) { return t.group === g; }).length;
-      box.append(chip(g, GROUP_ICONS[g] + ' ' + g + (n ? ' ' + n : '')));
-    });
+    used.forEach(function (g) { box.append(chip(g, g)); });
   }
   function trophyWall(today) {
     var monday = weekOf_(today, 0, 1);
@@ -366,7 +363,7 @@
   function waitingRow(tasks, today) {
     if (!tasks.length) return null;
     var head = h('button', { class: 'trophy-head', 'aria-expanded': String(state.showWaiting), onclick: function () { state.showWaiting = !state.showWaiting; draw(); } },
-      h('span', null, '🔁 安排好了 ', h('b', null, tasks.length), ' 件'), h('span', { class: 'small muted' }, state.showWaiting ? '收起' : '到时候再出现'));
+      h('span', null, '安排好了 ', h('b', null, tasks.length), ' 件'), h('span', { class: 'small muted' }, state.showWaiting ? '收起' : '到时候再出现'));
     return h('section', { class: 'waiting' }, h('div', { class: 'card trophy' }, head),
       state.showWaiting ? h('div', { class: 'card list' }, tasks.map(function (t) { return taskRow(t, today); })) : null);
   }
@@ -394,7 +391,7 @@
 
   /* ---------- ideas ---------- */
   function drawTabs() {
-    var box = $('#tabs'), open = ideas.filter(function (i) { return i.stage !== 'shelved'; }).length;
+    var box = $('#tabs');
     function tab(id, label) {
       return h('button', { type: 'button', class: 'tab', 'aria-pressed': String(state.tab === id), onclick: function () {
         if (state.tab === id) return;
@@ -404,7 +401,7 @@
         scrollTo(0, 0);
       } }, label);
     }
-    box.replaceChildren(tab('todo', '待办'), tab('ideas', '想法' + (open ? ' ' + open : '')));
+    box.replaceChildren(tab('todo', '待办'), tab('ideas', '想法'));
   }
   function addIdea(text, kind, raw) {
     var now = nowStr(), rec = { id: newId(), text: text, kind: kind, stage: 'new', notes: '', raw: raw || text, createdAt: now, updatedAt: now, stageAt: now };
@@ -575,25 +572,21 @@
   }
   function ideaRow(idea, today) {
     var stale = ideaStale(idea, today), counts = noteCounts(idea);
-    var openLine = (idea.notes ? idea.notes.split('\n') : []).filter(function (l) { return !noteDone(l); })[0];
-    var latest = openLine ? readNote(openLine).text : '';
     var doingDays = idea.stage === 'doing' ? Math.max(0, daysBetween_(String(idea.stageAt || idea.createdAt).slice(0, 10), today)) : -1;
-    return h('div', { class: 'row idea' + (stale ? ' stale' : '') },
+    var meta = [state.kind === 'all' ? idea.kind : null, doingDays >= 0 ? '在做 ' + doingDays + ' 天' : null, counts.open ? '待改 ' + counts.open : null]
+      .filter(Boolean).join(' · ');
+    return h('div', { class: 'row idea' },
       h('button', { class: 'row-main', onclick: function () { openIdea(idea); } },
         h('div', { class: 'row-text' }, idea.text),
-        latest ? h('div', { class: 'row-note' }, '└ ' + latest) : null,
-        h('div', { class: 'row-meta' },
-          state.kind === 'all' ? KIND_ICONS[idea.kind] + ' ' + idea.kind : null,
-          doingDays >= 0 ? (state.kind === 'all' ? ' · ' : '') + '在做 ' + doingDays + ' 天' : null,
-          counts.open ? ' · 📝 待改 ' + counts.open : null,
-          counts.done ? ' · 已改 ' + counts.done : null),
-        stale ? h('div', { class: 'nudge' }, '好一阵没动了。先做出一个能用的版本？') : null),
-      h('button', { class: 'plus', 'aria-label': '补充 ' + idea.text, onclick: function () { openQuickNote(idea); } }, '＋'));
+        h('div', { class: 'row-meta' }, meta,
+          // A gentle sign that it has sat in 在做 for 3 weeks: time to ship a usable version.
+          stale ? h('span', { class: 'tag', title: '好一阵没动了。先做出一个能用的版本？' }, '该推进了') : null)),
+      h('button', { class: 'plus', 'aria-label': '补充 ' + idea.text, onclick: function () { openQuickNote(idea); } }, h('span', null, '+')));
   }
   function ideaSection(stage, items, today) {
     if (!items.length) return null;
     return h('section', { class: stage === 'doing' ? 'now' : '' },
-      h('div', { class: 'section-head' }, h('h2', null, STAGE_INFO[stage][0] + ' ' + STAGE_INFO[stage][1]), h('span', { class: 'small muted' }, items.length + ' 个')),
+      h('div', { class: 'section-head' }, h('h2', null, STAGE_INFO[stage][1]), h('span', { class: 'small muted' }, items.length + ' 个')),
       h('div', { class: 'card list' }, items.map(function (i) { return ideaRow(i, today); })));
   }
   function drawIdeas() {
@@ -608,7 +601,7 @@
     box.replaceChildren(chip('all', '全部 ' + live.length));
     IDEA_KINDS.forEach(function (k) {
       var n = live.filter(function (i) { return i.kind === k; }).length;
-      box.append(chip(k, KIND_ICONS[k] + ' ' + k + (n ? ' ' + n : '')));
+      box.append(chip(k, k));
     });
     function of(stage) { return shown.filter(function (i) { return i.stage === stage; }).sort(byRecent_); }
     var doing = of('doing').sort(function (a, b) { return ideaStale(b, today) - ideaStale(a, today); });
@@ -616,7 +609,7 @@
     var shelf = null;
     if (shelved.length) {
       var head = h('button', { class: 'trophy-head', 'aria-expanded': String(state.showShelved), onclick: function () { state.showShelved = !state.showShelved; draw(); } },
-        h('span', null, '🗄 放下的 ', h('b', null, shelved.length), ' 个'), h('span', { class: 'small muted' }, state.showShelved ? '收起' : '看看'));
+        h('span', null, '放下的 ', h('b', null, shelved.length), ' 个'), h('span', { class: 'small muted' }, state.showShelved ? '收起' : '看看'));
       shelf = h('section', null, h('div', { class: 'card trophy' }, head),
         state.showShelved ? h('div', { class: 'card list' }, shelved.map(function (i) { return ideaRow(i, today); })) : null);
     }
@@ -639,17 +632,18 @@
   }
   function buildInput() {
     var onIdeas = state.tab === 'ideas';
-    var example = onIdeas ? '例如：开个网店卖手工 · 补充 网店：先问问朋友' : '例如：买维生素D，两周内完成 · 说“想法：…”记想法';
-    var box = h('textarea', { id: 'capture', rows: 1, lang: 'zh-CN', enterkeyhint: 'send', placeholder: onIdeas ? '说一个想法，或补充一个' : '点这里，按麦克风说话', 'aria-label': onIdeas ? '新想法' : '新待办', autocomplete: 'off' });
-    var hint = h('div', { class: 'preview small muted', id: 'preview' }, example);
+    var box = h('textarea', { id: 'capture', rows: 1, lang: 'zh-CN', enterkeyhint: 'send', placeholder: onIdeas ? '说个想法，或“补充 某想法：…”' : '说一句，如：两周内买维生素D', 'aria-label': onIdeas ? '新想法' : '新待办', autocomplete: 'off' });
+    // Only shown while typing, so the top of the screen stays calm.
+    var hint = h('div', { class: 'preview small muted', id: 'preview', hidden: true });
     function resize() { box.style.height = 'auto'; box.style.height = box.scrollHeight + 2 + 'px'; }
     function preview() {
       resize();
       var text = box.value.trim();
-      if (!text) { hint.textContent = example; return; }
+      hint.hidden = !text;
+      if (!text) return;
       var cap = readInput(text);
       if (cap.type === 'note') { hint.textContent = '→ 补充到：' + findIdea(cap.id).text; return; }
-      if (cap.type === 'idea') { hint.textContent = '→ 💡 想法 · ' + KIND_ICONS[cap.kind] + ' ' + cap.kind; return; }
+      if (cap.type === 'idea') { hint.textContent = '→ 想法 · ' + cap.kind; return; }
       var p = parseTodo(text, todayStr());
       hint.textContent = '→ ' + p.text + ' · ' + monthDay(p.due) + '（' + weekName(p.due) + '）' + (p.dated ? '' : ' 默认一周') + ' · ' + p.group + (p.repeat ? ' · ' + repeatLabel(p.repeat) : '');
     }
@@ -665,7 +659,7 @@
         var idea = addIdea(cap.text, cap.kind, text);
         if (state.kind !== 'all' && state.kind !== idea.kind) state.kind = 'all';
         draw();
-        if (state.tab === 'ideas') return toast('已记下想法 · ' + KIND_ICONS[idea.kind] + ' ' + idea.kind);
+        if (state.tab === 'ideas') return toast('已记下想法 · ' + idea.kind);
         return toast('已记下想法 💡', function () { state.tab = 'ideas'; store.set('td_tab', 'ideas'); render(); }, '去看看');
       }
       var today = todayStr(), id = newId(), p = parseTodo(text, today);
@@ -815,7 +809,7 @@
     }
     $('#view').replaceChildren(buildInput(),
       h('div', { class: 'progress', id: 'progress', hidden: true },
-        h('div', { class: 'progress-text', id: 'progress-text' }),
+        h('span', { class: 'progress-text', id: 'progress-text' }),
         h('div', { class: 'bar' }, h('i', { id: 'progress-bar' }))),
       h('div', { class: 'chips filters', id: 'chips' }),
       h('div', { class: 'stack', id: 'list' }));
