@@ -73,10 +73,15 @@ function handle_(req) {
   if (req.action === 'todoAdd') return todoAdd_(req);
   if (req.action === 'todoUpdate') {
     var done = withLock_(function () { return todoUpdate_(req); });
-    if (done.translate) done.buyEn = fillBuyEn_([{ id: done.id, text: done.translate }])[0].buyEn || '';
+    if (done.translate) {
+      var t = fillBuyEn_([{ id: done.id, text: done.translate }])[0];
+      done.buyEn = t.buyEn || '';
+      if (t.buyEnError) done.buyEnError = t.buyEnError;
+    }
     delete done.translate;
     return done;
   }
+  if (req.action === 'todoTranslate') return todoTranslate_(req);
   if (req.action === 'ideaAdd') return withLock_(function () { return ideaAdd_(req); });
   if (req.action === 'ideaUpdate') return withLock_(function () { return ideaUpdate_(req); });
   throw new Error('unknown action');
@@ -302,8 +307,8 @@ function todoUpdate_(req) {
  */
 function fillBuyEn_(tasks) {
   tasks.forEach(function (t) {
-    var en = translateBuy_(buyWord(t.text));
-    if (!en) return;
+    var got = translateBuy_(buyWord(t.text)), en = got.en;
+    if (!en) { t.buyEnError = got.error; return; }
     t.buyEn = en;
     withLock_(function () {
       var row = rowOf_(t.id);
@@ -317,14 +322,33 @@ function fillBuyEn_(tasks) {
   return tasks;
 }
 
+/** { en } or { en: '', error } with Google's reason, which the app shows so a failure can be told apart. */
 function translateBuy_(word) {
-  if (!/[\u4e00-\u9fff]/.test(word)) return text_(word, 100);
+  if (!/[\u4e00-\u9fff]/.test(word)) return { en: text_(word, 100) };
   try {
-    return text_(LanguageApp.translate(word, 'zh-CN', 'en'), 100);
+    // An empty source language lets Google detect it.
+    var en = text_(LanguageApp.translate(word, '', 'en'), 100);
+    return en && en !== word ? { en: en } : { en: '', error: 'no translation came back' };
   } catch (e) {
-    console.error('translate: ' + (e && e.message));
-    return '';
+    var why = String(e && e.message || e).slice(0, 160);
+    console.error('translate: ' + why);
+    return { en: '', error: why };
   }
+}
+
+/** The 翻译 button in the edit screen: translate now and keep the result, replacing what was there. */
+function todoTranslate_(req) {
+  var row = withLock_(function () { return rowOf_(req.id); });
+  if (!row) throw new Error('not found');
+  var rec = readRow_(row), got = translateBuy_(buyWord(rec.text));
+  if (got.en) withLock_(function () {
+    var at = rowOf_(req.id);
+    if (!at) return;
+    var now = readRow_(at);
+    now.buyEn = got.en;
+    writeRow_(at, now);
+  });
+  return got.en ? { id: req.id, buyEn: got.en } : { id: req.id, buyEn: '', buyEnError: got.error };
 }
 
 /* ---------- ideas ---------- */

@@ -144,6 +144,7 @@ input[type=text], input[type=date], select, textarea {
 .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
 .btn.danger { background: transparent; color: var(--warn); border: 1px solid var(--line); }
 .btn-row { display: flex; gap: 10px; }
+.small-btn { flex: none; min-height: 46px; padding: 0 16px; }
 .btn-row .btn { flex: 1; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; color: var(--ink); }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }

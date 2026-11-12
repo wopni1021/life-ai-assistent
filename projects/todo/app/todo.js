@@ -124,7 +124,7 @@
         queue.shift();
         problem = '';
         if (item.action === 'todoAdd') applyAdded(item.payload.id, res.tasks);
-        if (item.action === 'todoUpdate' && res && res.buyEn !== undefined) applyBuyEn(item.payload.id, res.buyEn);
+        if (item.action === 'todoUpdate' && res && res.buyEn !== undefined) applyBuyEn(item.payload.id, res.buyEn, res.buyEnError);
         if (res && res.idea) applyIdea(res.idea);
         save();
         next();
@@ -149,10 +149,13 @@
     if (later || !tasks || !tasks.length) return;
     var at = list.findIndex(function (t) { return t.id === id; });
     if (at < 0) return;
+    var failed = tasks.map(function (t) { return t.buyEnError; }).filter(Boolean)[0];
+    tasks.forEach(function (t) { delete t.buyEnError; });
     list.splice.apply(list, [at, 1].concat(tasks.map(function (t, i) {
       return i === 0 ? Object.assign(list[at], t) : t;
     })));
     if (tasks.length > 1) toast('整理成了 ' + tasks.length + ' 件');
+    else if (failed) translateFailed(failed);
     if (!busy()) draw();
   }
   /** The sheet's copy of an idea replaces the local one, unless more changes to it are still waiting to be sent. */
@@ -163,7 +166,10 @@
     if (at >= 0) Object.assign(ideas[at], idea);
   }
   /** English search words made by the backend after an edit. */
-  function applyBuyEn(id, en) {
+  /** Google's own reason, so a failure on the phone can be reported as it is. */
+  function translateFailed(why) { toast('Shopee 英文没翻译成：' + why); }
+  function applyBuyEn(id, en, why) {
+    if (why) translateFailed(why);
     var t = findTask(id);
     if (!t || queue.some(function (q) { return q.payload.id === id; })) return;
     t.buyEn = en;
@@ -743,7 +749,19 @@
         });
       }
       var buyEn = h('input', { type: 'text', value: t.buyEn || '', placeholder: '保存后自动翻译', autocapitalize: 'off', 'aria-label': 'Shopee 搜索词（英文）' });
-      var buyField = h('label', { class: 'field' }, 'Shopee 搜索词（英文）', buyEn);
+      var translateBtn = h('button', { type: 'button', class: 'btn ghost small-btn', onclick: function () {
+        if (queue.some(function (q) { return q.payload.id === t.id; })) return toast('还在同步，等一下再点');
+        translateBtn.disabled = true;
+        translateBtn.textContent = '翻译中…';
+        api('todoTranslate', { id: t.id }).then(function (r) {
+          if (!r.buyEn) return translateFailed(r.buyEnError || '没有结果');
+          buyEn.value = t.buyEn = r.buyEn;
+          save();
+        }).catch(function (e) { toast('没连上：' + (e && e.message || '')); })
+          .then(function () { translateBtn.disabled = false; translateBtn.textContent = '翻译'; });
+      } }, '翻译');
+      var buyField = h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, 'Shopee 搜索词（英文）'),
+        h('div', { class: 'capture-row' }, buyEn, translateBtn));
       function drawGroups() {
         buyField.hidden = group !== '买东西';
         groupBox.replaceChildren();

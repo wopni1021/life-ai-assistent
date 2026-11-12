@@ -40,7 +40,7 @@ window.SpreadsheetApp = { getActiveSpreadsheet: () => ({
   window.ScriptApp = {};
   var translations = [];
   window.LanguageApp = { translate: (s, from, to) => {
-    assert.strictEqual(lockHeld, 0, 'translating must not hold the lock'); assert.strictEqual(from + '>' + to, 'zh-CN>en');
+    assert.strictEqual(lockHeld, 0, 'translating must not hold the lock'); assert.strictEqual(from + '>' + to, '>en', 'source language detected by Google');
     translations.push(s);
     const dict = { 尿布: 'diapers', 维生素D: 'vitamin D', 湿巾: 'wet wipes', 婴儿湿巾: 'baby wipes' };
     if (s === '坏掉') throw new Error('quota'); return dict[s] || 'thing';
@@ -79,6 +79,12 @@ translations = [];
 r = call({ action: 'todoAdd', text: '明天转账' }); assert(r.ok); assert.strictEqual(grid.length, 3); assert.strictEqual(translations.length, 0);
 // Translation failing keeps the task, with no English.
 r = call({ action: 'todoAdd', id: 'tr1', text: '买坏掉' }); assert(r.ok, r.error); assert.strictEqual(row('tr1')[10] || '', '');
+assert.strictEqual(r.data.tasks[0].buyEnError, 'quota', 'the reason reaches the app');
+// The 翻译 button: tries again now, and replaces words already there.
+r = call({ action: 'todoTranslate', id: 'tr1' }); assert(r.ok, r.error); assert.strictEqual(r.data.buyEnError, 'quota');
+r = call({ action: 'todoUpdate', id: 'tr1', buyEn: 'x' }); r = call({ action: 'todoUpdate', id: 'tr1', text: '买尿布', buyEn: 'old words' });
+r = call({ action: 'todoTranslate', id: 'tr1' }); assert.strictEqual(r.data.buyEn, 'diapers'); assert.strictEqual(row('tr1')[10], 'diapers');
+assert(!call({ action: 'todoTranslate', id: 'ghost' }).ok);
 // English text is used as it is.
 translations = []; r = call({ action: 'todoAdd', id: 'tr2', text: 'buy milk powder' }); assert.strictEqual(r.data.tasks[0].buyEn, 'milk powder'); assert.strictEqual(translations.length, 0);
 // A new text is translated again; English set by hand is kept until the text changes.

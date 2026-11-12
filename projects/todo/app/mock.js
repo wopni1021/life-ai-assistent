@@ -70,6 +70,13 @@
       keep();
       return reply({ idea: it });
     }
+    if (a === 'todoTranslate') {
+      var tt = rows.filter(function (r) { return r.id === req.id; })[0];
+      if (!tt) return Promise.reject(new Error('not found'));
+      tt.buyEn = fakeEn(tt.text);
+      keep();
+      return reply({ id: req.id, buyEn: tt.buyEn });
+    }
     if (a === 'todoAdd') {
       var p = parseTodo(req.text, today());
       var rec = { id: req.id, text: p.text, due: p.due, group: p.group, repeat: p.repeat, status: 'open', raw: req.text, createdAt: today() + 'T12:00:00', doneAt: '', buyEn: p.group === '买东西' ? fakeEn(p.text) : '' };
