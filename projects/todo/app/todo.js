@@ -308,7 +308,6 @@
         h('div', { class: 'row-meta' },
           h('span', { class: t.due < today ? 'late' : '' }, dueLabel(t.due, today)),
           isWaiting(t, today) ? ' · ' + monthDay(t.showFrom) + '出现' : null,
-          state.filter === 'all' ? ' · ' + t.group : null,
           t.repeat ? ' · ' + repeatLabel(t.repeat) : null)),
       t.group === '买东西' ? shopeeLink(t) : null);
     tick.addEventListener('click', function () { complete(t, row, tick); });
@@ -377,7 +376,9 @@
     if (state.filter !== 'all' && state.filter !== TODO_NO_GROUP && TODO_GROUPS.indexOf(state.filter) < 0) state.filter = 'all';
     var shown = all.filter(function (t) { return state.filter === 'all' || t.group === state.filter; });
     drawProgress();
-    drawChips(all);
+    // Groups still pick the Shopee button, but the list is not filtered or labelled by them.
+    state.filter = 'all';
+    $('#chips').replaceChildren();
     var now = shown.filter(function (t) { return t.due <= today; });
     var soon = shown.filter(function (t) { return t.due > today && t.due <= week; });
     var later = shown.filter(function (t) { return t.due > week; });
@@ -573,15 +574,18 @@
   function ideaRow(idea, today) {
     var stale = ideaStale(idea, today), counts = noteCounts(idea);
     var doingDays = idea.stage === 'doing' ? Math.max(0, daysBetween_(String(idea.stageAt || idea.createdAt).slice(0, 10), today)) : -1;
-    var meta = [state.kind === 'all' ? idea.kind : null, doingDays >= 0 ? '在做 ' + doingDays + ' 天' : null, counts.open ? '待改 ' + counts.open : null]
-      .filter(Boolean).join(' · ');
-    return h('div', { class: 'row idea' },
+    var meta = [doingDays >= 0 ? '在做 ' + doingDays + ' 天' : null, counts.open ? '待改 ' + counts.open : null].filter(Boolean).join(' · ');
+    return h('div', { class: 'row idea' + (idea.kind === '赚钱' ? ' money' : '') },
       h('button', { class: 'row-main', onclick: function () { openIdea(idea); } },
         h('div', { class: 'row-text' }, idea.text),
-        h('div', { class: 'row-meta' }, meta,
+        h('div', { class: 'row-meta' }, kindBadge(idea.kind), meta,
           // A gentle sign that it has sat in 在做 for 3 weeks: time to ship a usable version.
           stale ? h('span', { class: 'tag', title: '好一阵没动了。先做出一个能用的版本？' }, '该推进了') : null)),
       h('button', { class: 'plus', 'aria-label': '补充 ' + idea.text, onclick: function () { openQuickNote(idea); } }, h('span', null, '+')));
+  }
+  /** The kind with its icon at the start of every idea row. 赚钱 is gold, to pull the eye toward it. */
+  function kindBadge(kind) {
+    return h('span', { class: 'kind' + (kind === '赚钱' ? ' kind-money' : '') }, KIND_ICONS[kind] + ' ' + kind);
   }
   function ideaSection(stage, items, today) {
     if (!items.length) return null;
@@ -601,7 +605,7 @@
     box.replaceChildren(chip('all', '全部 ' + live.length));
     IDEA_KINDS.forEach(function (k) {
       var n = live.filter(function (i) { return i.kind === k; }).length;
-      box.append(chip(k, k));
+      box.append(chip(k, KIND_ICONS[k] + ' ' + k));
     });
     function of(stage) { return shown.filter(function (i) { return i.stage === stage; }).sort(byRecent_); }
     var doing = of('doing').sort(function (a, b) { return ideaStale(b, today) - ideaStale(a, today); });

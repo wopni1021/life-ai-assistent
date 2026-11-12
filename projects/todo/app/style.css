@@ -78,6 +78,7 @@ header.top { display: flex; align-items: center; gap: 4px; padding: 8px 0 6px; }
 /* One row that scrolls sideways, edge to edge, instead of wrapping onto a second line. */
 .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px 14px; padding: 0 16px; }
 .filters::-webkit-scrollbar { display: none; }
+.filters:empty { display: none; }
 .filters .chip { flex: none; min-height: 36px; padding: 4px 14px; }
 .chip { min-height: 40px; padding: 6px 13px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
 .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -99,7 +100,12 @@ header.top { display: flex; align-items: center; gap: 4px; padding: 8px 0 6px; }
 .tab { min-height: 40px; min-width: 76px; padding: 0 16px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-size: 16px; font-weight: 600; }
 .tab[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 .idea .row-main { padding-left: 16px; }
-.tag { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 6px; background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--warn); font-size: 12px; font-weight: 600; line-height: 20px; vertical-align: 1px; }
+.idea.money { box-shadow: inset 4px 0 0 var(--gold); }
+.idea .row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 2px; }
+.kind { display: inline-block; padding: 0 8px; border-radius: 6px; background: var(--accent-soft); color: var(--ink); font-size: 12px; font-weight: 600; line-height: 22px; }
+.kind-money { background: color-mix(in srgb, var(--gold) 24%, transparent); color: var(--ink); }
+.idea.money .plus span { background: color-mix(in srgb, var(--gold) 24%, transparent); color: var(--warn); }
+.tag { display: inline-block; margin-left: 0; padding: 0 7px; border-radius: 6px; background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--warn); font-size: 12px; font-weight: 600; line-height: 20px; vertical-align: 1px; }
 .plus { flex: 0 0 56px; align-self: stretch; min-height: 64px; border: 0; background: transparent; display: grid; place-items: center; padding: 0; }
 .plus span { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 22px; font-weight: 600; line-height: 1; }
 .notes { display: flex; flex-direction: column; }
