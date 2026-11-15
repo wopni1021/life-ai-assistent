@@ -335,14 +335,14 @@
 
   /* ---------- the list ---------- */
   /*
-   * Shops for 买东西 tasks. JD and PDD open their app by its own link and fall back to the shop's
-   * website if nothing opened; Shopee's web address opens its app when iOS hands it over.
+   * Shops for 买东西 tasks. PDD opens its app by its own link and falls back to its website if
+   * nothing opened; JD's and Shopee's web addresses open their apps when iOS hands them over.
    * JD and PDD search in Chinese, Shopee in English (buyEn, made by the backend; Chinese until then).
    */
-  // JD's app opens but does not search unless all four of des, keyWord, from and category are given.
+  // JD's openapp.jdmobile:// link opened the app without searching (tried on iPhone, Nov 2026);
+  // its mobile search page does search, and iOS hands it to the JD app.
   var SHOPS = [
-    { name: '京东', app: function (w) { return 'openapp.jdmobile://virtual?params=' + encodeURIComponent(JSON.stringify({ des: 'productList', keyWord: w, from: 'search', category: 'jump' })); },
-      web: function (w) { return 'https://so.m.jd.com/ware/search.action?keyword=' + encodeURIComponent(w); } },
+    { name: '京东', web: function (w) { return 'https://so.m.jd.com/ware/search.action?keyword=' + encodeURIComponent(w); } },
     { name: '拼多多', app: function (w) { return 'pinduoduo://com.xunmeng.pinduoduo/search_result.html?search_key=' + encodeURIComponent(w); },
       web: function (w) { return 'https://mobile.yangkeduo.com/search_result.html?search_key=' + encodeURIComponent(w); } },
     { name: 'Shopee', english: true, web: function (w) { return 'https://shopee.sg/search?keyword=' + encodeURIComponent(w); } }
