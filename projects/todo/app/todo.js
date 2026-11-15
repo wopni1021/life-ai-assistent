@@ -339,8 +339,9 @@
    * website if nothing opened; Shopee's web address opens its app when iOS hands it over.
    * JD and PDD search in Chinese, Shopee in English (buyEn, made by the backend; Chinese until then).
    */
+  // JD's app opens but does not search unless all four of des, keyWord, from and category are given.
   var SHOPS = [
-    { name: '京东', app: function (w) { return 'openapp.jdmobile://virtual?params=' + encodeURIComponent(JSON.stringify({ category: 'jump', des: 'productList', keyWord: w })); },
+    { name: '京东', app: function (w) { return 'openapp.jdmobile://virtual?params=' + encodeURIComponent(JSON.stringify({ des: 'productList', keyWord: w, from: 'search', category: 'jump' })); },
       web: function (w) { return 'https://so.m.jd.com/ware/search.action?keyword=' + encodeURIComponent(w); } },
     { name: '拼多多', app: function (w) { return 'pinduoduo://com.xunmeng.pinduoduo/search_result.html?search_key=' + encodeURIComponent(w); },
       web: function (w) { return 'https://mobile.yangkeduo.com/search_result.html?search_key=' + encodeURIComponent(w); } },
