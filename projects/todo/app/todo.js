@@ -80,12 +80,33 @@
     toastTimer = setTimeout(function () { t.hidden = true; }, undo ? 5000 : 3200);
   }
   function connected() { return !!(cfg.token && (cfg.token === 'demo' || cfg.url)); }
+  /*
+   * Every request gets a time limit. When iOS pauses the Home Screen app, a request in flight can
+   * vanish without ever answering; without a limit the queue would wait on it forever ("同步中").
+   * Sending again is safe: adds carry their id and the backend ignores repeats.
+   */
+  var API_TIMEOUT_MS = 30000, RETRY_MS = 20000;
   function api(action, payload) {
     var body = Object.assign({ action: action, token: cfg.token }, payload || {});
-    if (cfg.token === 'demo') return window.MockApi(body);
-    return fetch(cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' })
-      .then(function (r) { return r.json(); })
-      .then(function (j) { if (!j.ok) throw new Error(j.error || '出错了'); return j.data; });
+    var ctrl = window.AbortController ? new AbortController() : null, timer;
+    var call = cfg.token === 'demo' ? window.MockApi(body)
+      : fetch(cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow', signal: ctrl ? ctrl.signal : undefined })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (!j.ok) throw new Error(j.error || '出错了'); return j.data; });
+    var limit = new Promise(function (_, reject) {
+      timer = setTimeout(function () { if (ctrl) ctrl.abort(); reject(new Error('timeout')); }, window.__apiTimeoutMs || API_TIMEOUT_MS);
+    });
+    return Promise.race([call, limit]).then(function (v) { clearTimeout(timer); return v; }, function (e) { clearTimeout(timer); throw e; });
+  }
+  /** While changes wait for a network problem to pass, try again now and then without a tap. */
+  var retryTimer;
+  function scheduleRetry() {
+    clearTimeout(retryTimer);
+    if (!queue.length) return;
+    retryTimer = setTimeout(function () {
+      if (document.visibilityState === 'visible') flush();
+      scheduleRetry();
+    }, window.__retryMs || RETRY_MS);
   }
   function save() { store.set('td_list', JSON.stringify(list)); store.set('td_queue', JSON.stringify(queue)); store.set('td_ideas', JSON.stringify(ideas)); }
   function open_() { return list.filter(function (t) { return t.status === 'open'; }); }
@@ -107,24 +128,27 @@
     // A refused token must be fixable from here: the changes wait on this phone until it is.
     if (problemKind === 'token') return el.append(h('button', { class: 'status-fix', onclick: openToken }, '令牌不对，点这里更换'));
     if (problem) el.textContent = problem;
-    else if (queue.length) el.textContent = '同步中…';
+    else if (queue.length) el.textContent = '同步中（' + queue.length + ' 件）';
   }
   /** Sent one at a time, oldest first. A change stays saved here until the sheet has it, so closing the app loses nothing. */
   function enqueue(action, payload) {
     queue.push({ action: action, payload: payload });
     save();
+    setStatus();
     flush();
   }
   function flush() {
-    if (flushing || !queue.length || !connected()) return;
+    // A refused token only adds wrong tries (and keeps the lock going); 更换令牌 clears it and sends.
+    if (flushing || !queue.length || !connected() || problemKind === 'token') return;
     flushing = true;
     setStatus();
     (function next() {
       if (!queue.length) { flushing = false; setStatus(); return; }
       var item = queue[0];
+      setStatus();
       api(item.action, item.payload).then(function (res) {
         queue.shift();
-        problem = '';
+        problem = problemKind = '';
         if (item.action === 'todoAdd') applyAdded(item.payload.id, res.tasks);
         if (item.action === 'todoUpdate' && res && res.buyEn !== undefined) applyBuyEn(item.payload.id, res.buyEn);
         if (res && res.idea) applyIdea(res.idea);
@@ -144,6 +168,7 @@
         problem = problemKind === 'locked' ? '尝试太多次，稍后自动重试（' + queue.length + ' 件待同步）'
           : problemKind === 'token' ? '令牌不对' : queue.length + ' 件待同步，有网络时自动发送';
         setStatus();
+        if (problemKind !== 'token') scheduleRetry();
       });
     })();
   }

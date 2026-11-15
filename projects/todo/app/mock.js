@@ -49,6 +49,8 @@
 
   window.MockApi = function (req) {
     var a = req.action;
+    // For the time-limit test: this request never answers, as when iOS drops it.
+    if (window.__hang) { window.__hang--; return new Promise(function () {}); }
     if (window.__failNext) { window.__failNext = false; return Promise.reject(new Error('no connection')); }
     // For trying the token form: the stand-in refuses every request while this is set.
     if (window.__wrongToken) return Promise.reject(new Error(window.__wrongToken === 'locked' ? 'too many attempts, try again later' : 'unauthorized'));
