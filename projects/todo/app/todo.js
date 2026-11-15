@@ -46,7 +46,7 @@
   var list = loadJson('td_list', null);
   var queue = loadJson('td_queue', []);
   var ideas = loadJson('td_ideas', []);
-  var flushing = false, problem = '', lastRefresh = 0, leaving = 0, lastPraise = '';
+  var flushing = false, problem = '', problemKind = '', lastRefresh = 0, leaving = 0, lastPraise = '';
   var quiet = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---------- helpers ---------- */
@@ -102,10 +102,12 @@
   /* ---------- sending ---------- */
   function setStatus() {
     var el = $('#sync-status');
-    if (!connected()) { el.textContent = ''; return; }
+    el.replaceChildren();
+    if (!connected()) return;
+    // A refused token must be fixable from here: the changes wait on this phone until it is.
+    if (problemKind === 'token') return el.append(h('button', { class: 'status-fix', onclick: openToken }, '令牌不对，点这里更换'));
     if (problem) el.textContent = problem;
     else if (queue.length) el.textContent = '同步中…';
-    else el.textContent = '';
   }
   /** Sent one at a time, oldest first. A change stays saved here until the sheet has it, so closing the app loses nothing. */
   function enqueue(action, payload) {
@@ -138,7 +140,9 @@
           return next();
         }
         flushing = false;
-        problem = /unauthorized|too many/.test(msg) ? '令牌不对，请在设置里重新连接' : queue.length + ' 件待同步，有网络时自动发送';
+        problemKind = /unauthorized/.test(msg) ? 'token' : /too many/.test(msg) ? 'locked' : 'offline';
+        problem = problemKind === 'locked' ? '尝试太多次，稍后自动重试（' + queue.length + ' 件待同步）'
+          : problemKind === 'token' ? '令牌不对' : queue.length + ' 件待同步，有网络时自动发送';
         setStatus();
       });
     })();
@@ -173,7 +177,7 @@
     if (!connected() || queue.length) return Promise.resolve();
     return api('todoList').then(function (d) {
       lastRefresh = Date.now();
-      problem = '';
+      problem = problemKind = '';
       setStatus();
       if (queue.length) return;
       var first = !list;
@@ -184,7 +188,9 @@
       if (!busy()) draw();
     }).catch(function (e) {
       if (!list) return renderProblem(e);
-      problem = '暂时连不上，显示的是保存的内容';
+      var why = e && e.message || '';
+      problemKind = /unauthorized/.test(why) ? 'token' : /too many/.test(why) ? 'locked' : 'offline';
+      problem = problemKind === 'locked' ? '尝试太多次，稍后自动重试' : '暂时连不上，显示的是保存的内容';
       setStatus();
     });
   }
@@ -866,18 +872,79 @@
       h('div', { class: 'stack', id: 'list' }));
     draw();
   }
+  /**
+   * Change the address or token without losing anything: the saved list and the queue stay, and the
+   * queue is sent once the new token works. (断开连接 is the only thing that clears this phone.)
+   */
+  function openToken() {
+    sheet(function (close) {
+      var url = h('input', { type: 'text', value: cfg.url, placeholder: 'https://script.google.com/macros/s/.../exec', autocomplete: 'off', autocapitalize: 'off', 'aria-label': '网址' });
+      var tok = h('input', { type: 'text', placeholder: '粘贴令牌', autocomplete: 'off', autocapitalize: 'off', 'aria-label': '新令牌' });
+      var msg = h('p', { class: 'small muted' }, queue.length ? '这部手机上有 ' + queue.length + ' 件改动在等着发送，换好令牌后会自动发出，不会丢。' : '');
+      var save = h('button', { class: 'btn', onclick: function () {
+        var u = url.value.trim(), t = tok.value.trim();
+        if (!t) return tok.focus();
+        if (t !== 'demo' && !u) return url.focus();
+        var old = cfg;
+        cfg = { url: u, token: t };
+        save.disabled = true;
+        msg.textContent = '检查中…';
+        function keep() {
+          store.set('td_url', u);
+          store.set('td_token', t);
+        }
+        api('todoList').then(function () {
+          keep();
+          problem = problemKind = '';
+          close();
+          toast(queue.length ? '已连接，正在发送 ' + queue.length + ' 件' : '已连接');
+          flush();
+          setStatus();
+        }).catch(function (e) {
+          var why = e && e.message || '';
+          save.disabled = false;
+          if (/too many/.test(why)) {
+            // Locked after many wrong tries: keep the new token so the queue goes out when the lock lifts.
+            keep();
+            problemKind = 'locked';
+            problem = '尝试太多次，稍后自动重试（' + queue.length + ' 件待同步）';
+            setStatus();
+            msg.textContent = '令牌已保存。之前错的次数太多，表格暂时锁着，一小时内自动恢复，到时会自动发送。';
+            return;
+          }
+          cfg = old;
+          msg.textContent = /unauthorized/.test(why) ? '这个令牌还是不对。请从 Apps Script 的 项目设置 → 脚本属性 → API_TOKEN 复制。' : '没连上：' + why;
+        });
+      } }, '保存');
+      return h('div', { class: 'card editor' },
+        h('h2', null, '更换令牌'),
+        h('p', { class: 'small muted' }, '在 Apps Script 里打开 项目设置（齿轮）→ 脚本属性，复制 API_TOKEN 的值。不要重新运行 makeToken，那会让快捷指令也失效。'),
+        h('label', { class: 'field' }, '网址', url),
+        h('label', { class: 'field' }, '令牌', tok),
+        msg,
+        h('div', { class: 'btn-row' }, h('button', { class: 'btn ghost', onclick: close }, '取消'), save));
+    });
+  }
   $('#settings-btn').addEventListener('click', function () {
     sheet(function (close) {
       var sound = h('input', { type: 'checkbox', id: 'sound' });
       sound.checked = soundOn();
       sound.addEventListener('change', function () { store.set('td_sound', sound.checked ? 'on' : 'off'); });
+      // Clears the saved list and anything not yet sent, so it asks twice when something is waiting.
+      var armed = false;
+      var disconnect = h('button', { class: 'btn danger', onclick: function () {
+        if (queue.length && !armed) { armed = true; disconnect.textContent = '会丢掉 ' + queue.length + ' 件未发送的改动，再点一次'; return; }
+        close();
+        signOut();
+      } }, '断开连接');
       return h('div', { class: 'card editor' },
         h('h2', null, '设置'),
         h('p', { class: 'small muted' }, cfg.token === 'demo' ? '现在看到的是示例数据。' : '已连接你的表格。网址和令牌只保存在这部手机上。'),
         h('label', { class: 'check' }, sound, '完成时的提示音'),
+        cfg.token === 'demo' ? null : h('button', { class: 'btn ghost', onclick: function () { close(); openToken(); } }, '更换令牌（保留这部手机上的内容）'),
         h('div', { class: 'btn-row' },
           h('button', { class: 'btn ghost', onclick: close }, '关闭'),
-          h('button', { class: 'btn danger', onclick: function () { close(); signOut(); } }, '断开连接')));
+          disconnect));
     });
   });
 

@@ -27,6 +27,7 @@ Where or how a task gets done, because the useful question is "what can I do fro
 ## Phone behavior
 - Sections: 现在要做 (overdue and today), 这周 (next 7 days), 以后. Filter chips by group.
 - Opens from a saved copy. Unsent changes stay in a saved queue and retry, so closing the app loses nothing.
+- A refused token shows as a tappable "令牌不对，点这里更换". Changing the token keeps the saved list and the queue, which is then sent. Only 断开连接 clears the phone. (In November 2026 a wrong token held every change on the phone for two weeks unnoticed.)
 - 买东西 tasks have three buttons, 京东 · 拼多多 · Shopee. JD and PDD open their app (falling back to their website) and search in Chinese; Shopee searches in English, using `buyEn`.
 - `buyEn` comes from Google Translate inside Apps Script (`LanguageApp`: free, no key) after the task is saved, again whenever the text changes, and can be typed by hand in the edit screen. Until then, or if translating fails, Shopee searches in Chinese.
 - Finishing a task: tick animation, sparks, soft ding, varied praise, bigger reward for tasks that waited longer, a 今天 N/M progress bar, a full-screen moment when 现在要做 is cleared, and a weekly trophy count.

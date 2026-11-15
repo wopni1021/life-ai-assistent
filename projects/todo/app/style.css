@@ -48,6 +48,7 @@ h2 { font-size: 15px; font-weight: 600; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 #sync-status:empty { display: none; }
+.status-fix { margin-top: 4px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); font-size: 13px; font-weight: 700; }
 
 header.top { display: flex; align-items: center; gap: 4px; padding: 8px 0 6px; }
 .top-title { flex: 1; min-width: 0; }

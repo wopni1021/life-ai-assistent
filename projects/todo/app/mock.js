@@ -50,6 +50,8 @@
   window.MockApi = function (req) {
     var a = req.action;
     if (window.__failNext) { window.__failNext = false; return Promise.reject(new Error('no connection')); }
+    // For trying the token form: the stand-in refuses every request while this is set.
+    if (window.__wrongToken) return Promise.reject(new Error(window.__wrongToken === 'locked' ? 'too many attempts, try again later' : 'unauthorized'));
     if (a === 'todoList') return reply({ todos: rows, ideas: ideas });
     if (a === 'ideaAdd') {
       var made = { id: req.id, text: req.text, kind: req.kind || ideaKind(req.text), stage: 'new', notes: '', raw: req.raw || req.text, createdAt: now(), updatedAt: now(), stageAt: now() };

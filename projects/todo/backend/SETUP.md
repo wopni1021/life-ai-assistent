@@ -41,6 +41,12 @@ For a new project, add `TODO_SCRIPT_ID` first and run **Deploy Todo backend** fr
 2. Share > Add to Home Screen. The icon is called 待办.
 3. Open it from the Home Screen and paste the web app URL and token. iPhone keeps each Home Screen app's storage separate, so this has to be done inside the installed app.
 
+If the app says **令牌不对，点这里更换**, the backend is refusing its token and changes wait on the phone. To fix it without losing them:
+1. In the Apps Script editor, open **Project Settings** (gear) → **Script Properties** and copy the value of `API_TOKEN`. Do not run `makeToken` again: that makes a new token and the Shortcut stops working too.
+2. In the app, tap that line (or ⚙ → 更换令牌), paste the token and save. The waiting changes are sent in order. After 20 wrong tries the backend refuses everything for an hour; the app keeps the new token and sends once that lifts.
+3. Make sure the Shortcut's `token` field holds the same value.
+⚙ → 断开连接 clears the phone's saved list and anything not yet sent; it asks twice when something is waiting.
+
 ## 4. One-press voice logging (iPhone Shortcut, 5 minutes)
 This is the fastest way to log: one press, speak, done, without opening the app.
 
