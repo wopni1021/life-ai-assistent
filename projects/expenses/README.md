@@ -75,7 +75,7 @@ Sender `notifications@ocbc.com` also sends offers and statements; only payment e
 - Quick manual add in a few taps.
 - Opens from a saved copy; updates in the background.
 - Unsorted and Needs attention filters in Activity. Nothing blocks.
-- Tap a category in Home's month summary to see its purchases and refunds in Activity, with the category total (the month can be changed there). Tap the category chip to show everything again.
+- Tap a category in Home's month summary to see its purchases and refunds in Activity. A sideways row of category chips with totals switches category (All shows everything); the month can be changed there. "← Home" goes back to the month summary.
 
 ## Vouchers
 - Tracks how much is left on each dollar-value voucher and when it expires. Tab `Vouchers`: `id, name, amountLeft, expires, note, status, createdAt`. `status` is `active` or `used`. Not counted in Total money.
