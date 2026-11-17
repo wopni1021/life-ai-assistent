@@ -1,6 +1,6 @@
 # Expense tracker
 
-Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 104 pass in `projects/expenses/backend/tests/run.html`.
+Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 114 pass in `projects/expenses/backend/tests/run.html`.
 
 Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`, `statementCheck` (reads new statement emails, returns `{processed, waiting}`), `statementItem` (`{id, choice: add | use | dismiss}`). The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
@@ -75,6 +75,7 @@ Sender `notifications@ocbc.com` also sends offers and statements; only payment e
 - Quick manual add in a few taps.
 - Opens from a saved copy; updates in the background.
 - Unsorted and Needs attention filters in Activity. Nothing blocks.
+- Tap a category in Home's month summary to see its purchases and refunds in Activity, with the category total (the month can be changed there). Tap the category chip to show everything again.
 
 ## Vouchers
 - Tracks how much is left on each dollar-value voucher and when it expires. Tab `Vouchers`: `id, name, amountLeft, expires, note, status, createdAt`. `status` is `active` or `used`. Not counted in Total money.

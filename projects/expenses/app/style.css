@@ -94,6 +94,8 @@ button.link { background: transparent; border: 0; color: var(--accent); font-wei
 .bars { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .bar-row { display: grid; grid-template-columns: 104px 1fr auto; gap: 10px; align-items: center; font-size: 14px; }
 .bar-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.bar-row { grid-template-columns: 104px 1fr auto 10px; width: 100%; min-height: 44px; margin: -6px 0; padding: 0; border: 0; background: transparent; text-align: left; }
+.chip-x { margin-left: 8px; font-size: 12px; }
 .bar { height: 8px; border-radius: 99px; background: var(--accent-soft); overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
