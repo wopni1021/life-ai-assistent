@@ -27,7 +27,7 @@
     del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
   var cfg = { url: store.get('le_url') || '', token: store.get('le_token') || '' };
-  var state = { tab: store.get('le_tab') || 'home', month: null, query: '', filter: 'all', account: null };
+  var state = { tab: store.get('le_tab') || 'home', month: null, query: '', filter: 'all', account: null, category: null };
   if (state.tab === 'review') state.tab = 'home';
 
   /* Saved copy of the last sync. A cache on this phone only; the sheet stays the source of truth. */
@@ -124,7 +124,7 @@
     nav.hidden = !(cfg.token && (cfg.token === 'demo' || cfg.url));
   }
   function setTab(t) {
-    state.tab = t; state.account = null; state.review = false; store.set('le_tab', t);
+    state.tab = t; state.account = null; state.review = false; state.category = null; store.set('le_tab', t);
     buildTabs(); render(); window.scrollTo(0, 0);
   }
   function connected() { return !!(cfg.token && (cfg.token === 'demo' || cfg.url)); }
@@ -316,9 +316,10 @@
     var top = m.byCategory.slice(0, 6), max = top.length ? Math.max.apply(null, top.map(function (c) { return Math.abs(c.total); })) || 1 : 1;
     if (!top.length) bars.append(h('div', { class: 'muted' }, 'No spending yet this month.'));
     top.forEach(function (c) {
-      bars.append(h('div', { class: 'bar-row' }, h('span', { class: 'name' }, c.name),
+      bars.append(h('button', { type: 'button', class: 'bar-row', 'aria-label': c.name + ', ' + fmt(c.total) + '. Show its transactions',
+        onclick: function () { openCategory(m.month, c.name); } }, h('span', { class: 'name' }, c.name),
         h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.max(3, Math.round(Math.abs(c.total) / max * 100)) + '%' })),
-        h('span', { class: 'num' }, fmt(c.total))));
+        h('span', { class: 'num' }, fmt(c.total)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '\u203a')));
     });
     if (m.byTag.length) bars.append(h('div', { class: 'chips' }, m.byTag.slice(0, 6).map(function (t) { return h('span', { class: 'tagchip' }, t.name + ' ' + fmt(t.total)); })));
     out.push(h('div', null,
@@ -326,6 +327,16 @@
       h('div', { style: 'height:8px' }), bars));
     out.push(h('p', { class: 'small muted' }, 'Last bank alert logged: ' + ago(s.lastAlertAt)));
     show(h('div', { class: 'stack' }, out));
+  }
+  /** Activity showing one category's spending for a month, from a bar on Home. */
+  function openCategory(month, name) {
+    state.tab = 'txns'; state.account = null; state.review = false; store.set('le_tab', 'txns');
+    state.month = month; state.category = name; state.filter = 'all'; state.query = '';
+    buildTabs(); render(); window.scrollTo(0, 0);
+  }
+  /** Counts toward a category's spending, the same rows as the month summary: purchases and refunds, no duplicates. */
+  function inCategory(r, name) {
+    return (r.category || 'Uncategorised') === name && r.status !== 'dup' && (r.direction === 'out' || r.direction === 'refund');
   }
   /** Account choices for a select, in two groups like Home. */
   function accountOptions(accounts, exclude) {
@@ -502,7 +513,8 @@
   function renderTxns(accountId) {
     var current = db.month.month;
     if (!state.month || db.months.indexOf(state.month) < 0) state.month = current;
-    if (accountId) state.filter = 'all';
+    var category = accountId ? null : state.category;
+    if (accountId || category) state.filter = 'all';
     var listBox = h('div', { id: 'txn-list' });
     var account = accountId ? db.balances.accounts.filter(function (a) { return a.id === accountId; })[0] : null;
     var monthSel = h('select', { id: 'txn-month', 'aria-label': 'Month' }, db.months.map(function (m) {
@@ -517,14 +529,20 @@
     }
     var toReview = (db.statementItems || []).length;
     var reviewLink = !accountId && toReview ? h('button', { class: 'notice info review-link', onclick: openReview }, 'Statement review: ' + toReview + (toReview === 1 ? ' item' : ' items') + ' \u2192') : null;
+    var catTotal = h('b', { class: 'num' });
+    var catChip = category ? h('div', { class: 'chips filters' },
+      h('button', { type: 'button', class: 'chip', 'aria-pressed': 'true', 'aria-label': 'Showing ' + category + ' only. Tap to show everything',
+        onclick: function () { state.category = null; render(); } },
+        category + ' ', catTotal, h('span', { 'aria-hidden': 'true', class: 'chip-x' }, '\u2715'))) : null;
     var chips = (!accountId && (guesses || attention)) ? h('div', { class: 'chips filters' }, chip('all', 'All'),
       guesses ? chip('guess', 'Unsorted (' + guesses + ')') : null,
       attention ? chip('review', 'Needs attention (' + attention + ')') : null) : null;
     monthSel.hidden = state.filter !== 'all';
-    show(h('div', null, account ? accountHeader(account) : null, reviewLink, chips, h('div', { class: 'controls' }, monthSel, search), listBox));
+    show(h('div', null, account ? accountHeader(account) : null, reviewLink, catChip || chips, h('div', { class: 'controls' }, monthSel, search), listBox));
 
     function matches(r) {
       if (accountId && r.account !== accountId && r.toAccount !== accountId) return false;
+      if (category && !inCategory(r, category)) return false;
       if (!state.query) return true;
       return [r.merchant, r.merchantRaw, r.category, r.tag, r.note].join(' ').toLowerCase().indexOf(state.query.toLowerCase()) >= 0;
     }
@@ -542,10 +560,14 @@
         }).catch(function () { listBox.replaceChildren(h('div', { class: 'card empty' }, 'Could not load that month. Check your connection.')); });
         return;
       }
+      if (category) catTotal.textContent = fmt(source.reduce(function (t, r) {
+        return inCategory(r, category) ? t + (r.direction === 'refund' ? -1 : 1) * (Number(r.amount) || 0) : t;
+      }, 0));
       var rows = source.filter(matches).sort(function (a, b) { return a.datetime < b.datetime ? 1 : -1; });
       listBox.replaceChildren();
       if (!rows.length) {
-        var msg = state.query ? 'Nothing matches that search.' : state.filter !== 'all' ? 'Nothing left here.' : 'No transactions this month.';
+        var msg = state.query ? 'Nothing matches that search.' : state.filter !== 'all' ? 'Nothing left here.'
+          : category ? 'No ' + category + ' spending this month.' : 'No transactions this month.';
         return listBox.append(h('div', { class: 'card empty' }, msg));
       }
       append(listBox, txnGroups(rows, accountId));
@@ -809,7 +831,7 @@
       if (another) {
         state.nextAdd = { kind: kind, choice: choice, account: payload.account, date: payload.date };
       } else {
-        state.tab = 'txns'; state.account = null; state.filter = 'all'; state.query = '';
+        state.tab = 'txns'; state.account = null; state.filter = 'all'; state.query = ''; state.category = null;
         state.month = payload.date.slice(0, 7);
         store.set('le_tab', 'txns'); buildTabs();
       }
