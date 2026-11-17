@@ -322,7 +322,7 @@
         h('span', { class: 'num' }, fmt(c.total)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '\u203a')));
     });
     if (m.byTag.length) bars.append(h('div', { class: 'chips' }, m.byTag.slice(0, 6).map(function (t) { return h('span', { class: 'tagchip' }, t.name + ' ' + fmt(t.total)); })));
-    out.push(h('div', null,
+    out.push(h('div', { id: 'month-summary' },
       h('div', { class: 'section-head' }, h('h2', null, monthLabel(m.month)), h('span', { class: 'num' }, fmt(m.total))),
       h('div', { style: 'height:8px' }), bars));
     out.push(h('p', { class: 'small muted' }, 'Last bank alert logged: ' + ago(s.lastAlertAt)));
@@ -333,6 +333,12 @@
     state.tab = 'txns'; state.account = null; state.review = false; store.set('le_tab', 'txns');
     state.month = month; state.category = name; state.filter = 'all'; state.query = '';
     buildTabs(); render(); window.scrollTo(0, 0);
+  }
+  /** From a category list back to Home, at the month summary so another category is one tap away. */
+  function backToSummary() {
+    setTab('home');
+    var el = document.getElementById('month-summary');
+    if (el) el.scrollIntoView({ block: 'start' });
   }
   /** Counts toward a category's spending, the same rows as the month summary: purchases and refunds, no duplicates. */
   function inCategory(r, name) {
@@ -529,16 +535,14 @@
     }
     var toReview = (db.statementItems || []).length;
     var reviewLink = !accountId && toReview ? h('button', { class: 'notice info review-link', onclick: openReview }, 'Statement review: ' + toReview + (toReview === 1 ? ' item' : ' items') + ' \u2192') : null;
-    var catTotal = h('b', { class: 'num' });
-    var catChip = category ? h('div', { class: 'chips filters' },
-      h('button', { type: 'button', class: 'chip', 'aria-pressed': 'true', 'aria-label': 'Showing ' + category + ' only. Tap to show everything',
-        onclick: function () { state.category = null; render(); } },
-        category + ' ', catTotal, h('span', { 'aria-hidden': 'true', class: 'chip-x' }, '\u2715'))) : null;
+    var catChips = h('div', { class: 'chips cat-chips', role: 'group', 'aria-label': 'Categories' });
+    var catBar = category ? h('div', null,
+      h('button', { type: 'button', class: 'back', onclick: backToSummary }, '\u2190 Home'), catChips) : null;
     var chips = (!accountId && (guesses || attention)) ? h('div', { class: 'chips filters' }, chip('all', 'All'),
       guesses ? chip('guess', 'Unsorted (' + guesses + ')') : null,
       attention ? chip('review', 'Needs attention (' + attention + ')') : null) : null;
     monthSel.hidden = state.filter !== 'all';
-    show(h('div', null, account ? accountHeader(account) : null, reviewLink, catChip || chips, h('div', { class: 'controls' }, monthSel, search), listBox));
+    show(h('div', null, account ? accountHeader(account) : null, category ? null : reviewLink, catBar || chips, h('div', { class: 'controls' }, monthSel, search), listBox));
 
     function matches(r) {
       if (accountId && r.account !== accountId && r.toAccount !== accountId) return false;
@@ -560,9 +564,7 @@
         }).catch(function () { listBox.replaceChildren(h('div', { class: 'card empty' }, 'Could not load that month. Check your connection.')); });
         return;
       }
-      if (category) catTotal.textContent = fmt(source.reduce(function (t, r) {
-        return inCategory(r, category) ? t + (r.direction === 'refund' ? -1 : 1) * (Number(r.amount) || 0) : t;
-      }, 0));
+      if (category) drawCategoryChips(source);
       var rows = source.filter(matches).sort(function (a, b) { return a.datetime < b.datetime ? 1 : -1; });
       listBox.replaceChildren();
       if (!rows.length) {
@@ -571,6 +573,25 @@
         return listBox.append(h('div', { class: 'card empty' }, msg));
       }
       append(listBox, txnGroups(rows, accountId));
+    }
+    /** One chip per category spent on in the shown month, biggest first; the open one is highlighted. */
+    function drawCategoryChips(source) {
+      var totals = {};
+      totals[category] = 0;
+      source.forEach(function (r) {
+        if (r.status === 'dup' || (r.direction !== 'out' && r.direction !== 'refund')) return;
+        var c = r.category || 'Uncategorised';
+        totals[c] = (totals[c] || 0) + (r.direction === 'refund' ? -1 : 1) * (Number(r.amount) || 0);
+      });
+      var names = Object.keys(totals).sort(function (a, b) { return totals[b] - totals[a]; });
+      catChips.replaceChildren(h('button', { type: 'button', class: 'chip', onclick: function () { state.category = null; render(); } }, 'All'));
+      names.forEach(function (n) {
+        catChips.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(n === category),
+          onclick: function () { if (n !== category) { state.category = n; state.query = ''; render(); } } },
+          n + ' ', h('b', { class: 'num' }, fmt(totals[n]))));
+      });
+      var on = catChips.querySelector('[aria-pressed="true"]');
+      if (on) catChips.scrollLeft = Math.max(0, on.offsetLeft - catChips.offsetLeft - 16);
     }
     monthSel.addEventListener('change', function () { state.month = monthSel.value; drawList(); });
     search.addEventListener('input', function () { state.query = search.value.trim(); drawList(); });
