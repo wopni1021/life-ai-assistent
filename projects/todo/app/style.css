@@ -148,6 +148,9 @@ input[type=text], input[type=date], select, textarea {
 .btn-row .btn { flex: 1; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; color: var(--ink); }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }
+.editor .check { align-items: flex-start; min-height: 52px; }
+.editor .check input { flex: none; margin-top: 2px; }
+.block { display: block; }
 .editor { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .repeat-custom { display: flex; align-items: center; gap: 8px; }
 .repeat-custom input { flex: 1 1 90px; min-width: 0; }

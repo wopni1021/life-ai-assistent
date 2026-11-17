@@ -111,7 +111,7 @@
   function save() { store.set('td_list', JSON.stringify(list)); store.set('td_queue', JSON.stringify(queue)); store.set('td_ideas', JSON.stringify(ideas)); }
   function open_() { return list.filter(function (t) { return t.status === 'open'; }); }
   /** The next round of a repeating task stays out of sight until a few days before it is due. */
-  function isWaiting(t, today) { return !!t.showFrom && t.showFrom > today; }
+  function isWaiting(t, today) { return isWaitingTask(t, today); }
   function byDue(a, b) { return a.due === b.due ? (a.createdAt < b.createdAt ? -1 : 1) : (a.due < b.due ? -1 : 1); }
   function nowTasks() { var t = todayStr(); return open_().filter(function (x) { return x.due <= t; }); }
   function doneOn(day) { return list.filter(function (t) { return t.status === 'done' && t.doneAt.slice(0, 10) === day; }); }
@@ -312,7 +312,7 @@
     t.status = 'done';
     t.doneAt = nowStr();
     if (nextId) {
-      list.push({ id: nextId, text: t.text, due: nextDue, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: nowStr(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(t.repeat)), buyEn: t.buyEn || '' });
+      list.push({ id: nextId, text: t.text, due: nextDue, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: nowStr(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(t.repeat)), buyEn: t.buyEn || '', onDay: t.onDay || '' });
     }
     enqueue('todoUpdate', { id: t.id, status: 'done', doneAt: t.doneAt, nextId: nextId });
     save();
@@ -376,7 +376,7 @@
         h('div', { class: 'row-text' }, t.text),
         h('div', { class: 'row-meta' },
           h('span', { class: t.due < today ? 'late' : '' }, dueLabel(t.due, today)),
-          isWaiting(t, today) ? ' · ' + monthDay(t.showFrom) + '出现' : null,
+          isWaiting(t, today) ? ' · ' + monthDay(waitingUntil(t)) + '出现' : null,
           t.repeat ? ' · ' + repeatLabel(t.repeat) : null));
     var row = h('div', { class: 'row' }, tick, t.group === '买东西' ? h('div', { class: 'row-body' }, main, shopBar(t)) : main);
     tick.addEventListener('click', function () { complete(t, row, tick); });
@@ -797,6 +797,8 @@
       unit.value = counted ? counted[2] : 'm';
       var custom = h('div', { class: 'repeat-custom' }, h('span', null, '每'), count, unit);
       custom.hidden = repeat.value !== 'custom';
+      var onDay = h('input', { type: 'checkbox', switch: true, 'aria-label': '只在当天出现' });
+      onDay.checked = t.onDay === '1';
       repeat.addEventListener('change', function () {
         custom.hidden = repeat.value !== 'custom';
         if (!custom.hidden) count.focus();
@@ -807,6 +809,7 @@
         h('div', { class: 'stack tight' }, h('div', { class: 'small muted' }, '分组'), groupBox),
         buyField,
         h('div', { class: 'stack tight' }, h('label', { class: 'field' }, '重复', repeat), custom),
+        h('label', { class: 'check' }, onDay, h('span', null, '只在当天出现', h('span', { class: 'small muted block' }, '到那天才出现在列表里，平时不打扰'))),
         t.raw && t.raw !== t.text ? h('div', { class: 'small muted' }, '你说的原话：' + t.raw) : null,
         h('div', { class: 'btn-row' },
           h('button', { class: 'btn danger', onclick: function () {
@@ -826,6 +829,8 @@
             }
             if (due !== t.due) t.showFrom = '';
             var change = { id: t.id, text: newText, due: due, group: group, repeat: every };
+            var wantOnDay = onDay.checked ? '1' : '';
+            if (wantOnDay !== (t.onDay || '')) change.onDay = t.onDay = wantOnDay;
             // English typed by hand is sent; otherwise a new text is translated again by the backend.
             var typed = buyEn.value.trim();
             if (typed !== (t.buyEn || '')) change.buyEn = typed;

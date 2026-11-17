@@ -6,7 +6,7 @@
  */
 
 var TZ = 'Asia/Singapore';
-var TODO_HEAD = ['id', 'text', 'due', 'group', 'repeat', 'status', 'raw', 'createdAt', 'doneAt', 'showFrom', 'buyEn'];
+var TODO_HEAD = ['id', 'text', 'due', 'group', 'repeat', 'status', 'raw', 'createdAt', 'doneAt', 'showFrom', 'buyEn', 'onDay'];
 var IDEA_HEAD = ['id', 'text', 'kind', 'stage', 'notes', 'raw', 'createdAt', 'updatedAt', 'stageAt'];
 var HEADS_ = { Todos: TODO_HEAD, Ideas: IDEA_HEAD };
 var DONE_KEEP_DAYS = 30;
@@ -133,6 +133,7 @@ function loadTodos_() {
     o.doneAt = cellStr_(o.doneAt, "yyyy-MM-dd'T'HH:mm:ss");
     o.showFrom = cellStr_(o.showFrom, 'yyyy-MM-dd');
     o.buyEn = String(o.buyEn || '');
+    o.onDay = String(o.onDay) === '1' ? '1' : '';
     return o;
   });
 }
@@ -270,6 +271,8 @@ function todoUpdate_(req) {
     if (req.repeat && !isRepeat(req.repeat)) throw new Error('bad repeat');
     rec.repeat = req.repeat;
   }
+  // "只在当天出现": the task stays out of sight until its due date.
+  if (req.onDay !== undefined) rec.onDay = String(req.onDay) === '1' ? '1' : '';
   // English words for the Shopee search: set by hand, or made again when a shopping task's text changes.
   var translate = '';
   if (req.buyEn !== undefined) rec.buyEn = text_(req.buyEn, 100);
@@ -282,7 +285,7 @@ function todoUpdate_(req) {
     rec.doneAt = /^\d{4}-\d{2}-\d{2}T[\d:]{8}$/.test(req.doneAt || '') ? req.doneAt : nowStr_();
     if (rec.repeat && req.nextId && !rowOf_(req.nextId)) {
       var nextDue = nextRound(rec.repeat, rec.due, rec.doneAt.slice(0, 10));
-      appendRow_({ id: text_(req.nextId, 60), text: rec.text, due: nextDue, group: rec.group, repeat: rec.repeat, status: 'open', raw: rec.raw, createdAt: nowStr_(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(rec.repeat)), buyEn: rec.buyEn });
+      appendRow_({ id: text_(req.nextId, 60), text: rec.text, due: nextDue, group: rec.group, repeat: rec.repeat, status: 'open', raw: rec.raw, createdAt: nowStr_(), doneAt: '', showFrom: addDays_(nextDue, -repeatLead(rec.repeat)), buyEn: rec.buyEn, onDay: String(rec.onDay) === '1' ? '1' : '' });
     }
   } else if (req.status === 'open') {
     rec.status = 'open';

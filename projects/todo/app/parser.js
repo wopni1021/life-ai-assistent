@@ -115,6 +115,13 @@ function nextRound(repeat, due, today) {
 }
 
 /**
+ * The day a task comes into the main list. A task marked onDay ("只在当天出现") stays out of
+ * sight until its due date; otherwise only a repeating task's next round waits, until showFrom.
+ */
+function waitingUntil(t) { return t.onDay ? String(t.due || '') : String(t.showFrom || ''); }
+function isWaitingTask(t, today) { var until = waitingUntil(t); return !!until && until > today; }
+
+/**
  * How many days before it is due the next round shows again: about a fifth of the interval,
  * from 1 to 7 days, so a monthly task waits out of sight until the week it matters. Daily: on the day.
  */

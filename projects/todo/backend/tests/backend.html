@@ -128,6 +128,15 @@ call({ action: 'todoUpdate', id: 'n1', due: '2031-01-01' }); assert.strictEqual(
 assert(!call({ action: 'todoUpdate', id: 'n1', repeat: '0m' }).ok);
 assert(call({ action: 'todoUpdate', id: 'n1', repeat: '1.5m' }).ok); assert.strictEqual(row('n1')[4], '1.5m');
 call({ action: 'todoUpdate', id: 'b-2', status: 'done', nextId: 'n2' }); assert(!row('n2'), 'done twice makes one copy');
+// "只在当天出现": set, returned by the list, copied to the next round, cleared.
+assert.strictEqual(grid[0][11], 'onDay', 'old sheet gets the onDay title');
+r = call({ action: 'todoUpdate', id: 'n1', onDay: '1' }); assert(r.ok, r.error); assert.strictEqual(row('n1')[11], '1');
+assert.strictEqual(call({ action: 'todoList' }).data.todos.filter(t => t.id === 'n1')[0].onDay, '1');
+r = call({ action: 'todoUpdate', id: 'n1', status: 'done', doneAt: today + 'T10:00:00', nextId: 'od2' }); assert(r.ok, r.error);
+assert.strictEqual(row('od2')[11], '1', 'the next round keeps it');
+call({ action: 'todoUpdate', id: 'od2', onDay: 'yes please' }); assert.strictEqual(row('od2')[11], '', 'anything but 1 clears it');
+assert.strictEqual(call({ action: 'todoList' }).data.todos.filter(t => t.id === 'od2')[0].onDay, '');
+call({ action: 'todoUpdate', id: 'od2', remove: true }); call({ action: 'todoUpdate', id: 'n1', status: 'open', removeId: '' });
 r = call({ action: 'todoUpdate', id: 'b-2', status: 'open', removeId: 'n1' }); assert(r.ok, r.error);
 assert(!row('n1')); assert.strictEqual(row('b-2')[5], 'open'); assert.strictEqual(row('b-2')[8], '');
 

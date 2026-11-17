@@ -219,6 +219,13 @@ ok('push body', msg, { body: '昨天完成 1 件 👏\n⚠️ 买维生素D（�
 ok('nothing due sends nothing', { v: pushMessage_([t('以后', '2026-12-01')], TODO) }, { v: null });
 var waitingTask = t('打气', '2026-11-05'); waitingTask.showFrom = '2026-11-03';
 ok('waiting tasks are not counted', { v: pushMessage_([t('转账', TODO), waitingTask, t('报销', '2026-11-01')], TODO).body }, { v: '转账\n这周还有 1 件' });
+// "只在当天出现": hidden until its due date, then counted as due that day.
+var sundayOnly = t('准备vd', '2026-11-01'); sundayOnly.onDay = '1'; sundayOnly.repeat = 'w7';
+ok('on-day task is not counted before its day', { v: pushMessage_([t('转账', TODO), sundayOnly], TODO).body }, { v: '转账' });
+ok('on-day task is in the push on its day', { v: pushMessage_([sundayOnly], '2026-11-01').body }, { v: '准备vd' });
+ok('waitingUntil', { a: waitingUntil(sundayOnly), b: waitingUntil(waitingTask), c: waitingUntil(t('x', '2026-11-05')) }, { a: '2026-11-01', b: '2026-11-03', c: '' });
+ok('isWaitingTask', { sat: isWaitingTask(sundayOnly, TODO), sun: isWaitingTask(sundayOnly, '2026-11-01'), late: isWaitingTask(sundayOnly, '2026-11-02'), plain: isWaitingTask(t('x', '2026-11-05'), TODO) },
+  { sat: true, sun: false, late: false, plain: false });
 var many = [1, 2, 3, 4, 5, 6, 7].map(function (n) { return t('事' + n, TODO); });
 ok('push is capped', { v: pushMessage_(many, TODO).body.split('\n').length }, { v: 6 });
 

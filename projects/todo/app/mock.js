@@ -88,12 +88,12 @@
       else {
         if (req.due !== undefined && req.due !== t.due) t.showFrom = '';
         var oldText = t.text, en;
-        ['text', 'due', 'group', 'repeat', 'buyEn'].forEach(function (k) { if (req[k] !== undefined) t[k] = req[k]; });
+        ['text', 'due', 'group', 'repeat', 'buyEn', 'onDay'].forEach(function (k) { if (req[k] !== undefined) t[k] = req[k]; });
         if (req.buyEn === undefined && t.group === '买东西' && t.text !== oldText) en = t.buyEn = fakeEn(t.text);
         if (req.status === 'done') {
           t.status = 'done';
           t.doneAt = req.doneAt;
-          if (t.repeat && req.nextId) { var nd = nextRound(t.repeat, t.due, today()); rows.push({ id: req.nextId, text: t.text, due: nd, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: today() + 'T12:00:00', doneAt: '', showFrom: addDays_(nd, -repeatLead(t.repeat)) }); }
+          if (t.repeat && req.nextId) { var nd = nextRound(t.repeat, t.due, today()); rows.push({ id: req.nextId, text: t.text, due: nd, group: t.group, repeat: t.repeat, status: 'open', raw: t.raw, createdAt: today() + 'T12:00:00', doneAt: '', showFrom: addDays_(nd, -repeatLead(t.repeat)), buyEn: t.buyEn || '', onDay: t.onDay || '' }); }
         } else if (req.status === 'open') {
           t.status = 'open';
           t.doneAt = '';
