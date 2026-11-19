@@ -77,6 +77,7 @@ Sender `notifications@ocbc.com` also sends offers and statements; only payment e
 - Quick manual add in a few taps.
 - Opens from a saved copy; updates in the background.
 - Unsorted and Needs attention filters in Activity. Nothing blocks.
+- Duplicates (the second alert of a transfer between own accounts) are hidden from Activity and Home's Recent, and shown with a "duplicate" label only on that account's screen.
 - Tap a category in Home's month summary to see its purchases and refunds in Activity. A sideways row of category chips with totals switches category (All shows everything); the month can be changed there. "← Home" goes back to the month summary.
 
 ## Vouchers

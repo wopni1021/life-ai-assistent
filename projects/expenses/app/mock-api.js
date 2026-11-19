@@ -8,6 +8,8 @@
     { id: 'ocbc-card', name: 'OCBC Card', type: 'card', bank: 'OCBC', balance: -88.4, sinceLastPayment: 88.4 }
   ];
   var tx = [
+    { id: 't9', datetime: '2026-10-26T21:05:00', direction: 'transfer', amount: 500, account: 'dbs-savings', toAccount: 'ocbc-360', merchantRaw: 'A NAME', merchant: 'Transfer to OCBC 360', category: 'Transfer', tag: '', bank: 'DBS', status: 'ok', note: '' },
+    { id: 't10', datetime: '2026-10-26T21:05:00', direction: 'transfer_in', amount: 500, account: 'ocbc-360', merchantRaw: 'A NAME', merchant: 'Transfer in', category: 'Transfer', tag: '', bank: 'OCBC', status: 'dup', note: '' },
     { id: 't1', datetime: '2026-10-27T09:14:00', direction: 'out', amount: 44.82, account: 'uob-card', merchantRaw: 'SHENG SIONG SUPERMARKET -', merchant: 'Sheng Siong', category: 'Groceries', tag: 'supermarket', bank: 'UOB', status: 'ok' },
     { id: 't2', datetime: '2026-10-27T12:20:00', direction: 'out', amount: 9.4, account: 'dbs-savings', merchantRaw: 'KOPI CORNER PTE. LTD.', merchant: 'Kopi Corner Pte. Ltd.', category: 'Dining', tag: '', bank: 'DBS', status: 'guess' },
     { id: 't3', datetime: '2026-10-26T18:05:00', direction: 'out', amount: 3.5, account: 'uob-card', merchantRaw: 'BUS/MRT', merchant: 'Public transport', category: 'Transport', tag: 'commute', bank: 'UOB', status: 'ok' },

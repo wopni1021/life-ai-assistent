@@ -305,7 +305,7 @@
 
     var byId = {};
     s.rows.forEach(function (r) { byId[r.id] = r; });
-    var recent = s.recentIds.map(function (id) { return byId[id]; }).filter(Boolean);
+    var recent = s.recentIds.map(function (id) { return byId[id]; }).filter(function (r) { return r && r.status !== 'dup'; });
     out.push(h('div', null,
       h('div', { class: 'section-head' }, h('h2', null, 'Recent'),
         h('button', { class: 'link', onclick: function () { setTab('txns'); } }, 'See all')),
@@ -546,6 +546,8 @@
 
     function matches(r) {
       if (accountId && r.account !== accountId && r.toAccount !== accountId) return false;
+      // The second alert of a transfer between own accounts: shown only on that account's screen.
+      if (!accountId && r.status === 'dup') return false;
       if (category && !inCategory(r, category)) return false;
       if (!state.query) return true;
       return [r.merchant, r.merchantRaw, r.category, r.tag, r.note].join(' ').toLowerCase().indexOf(state.query.toLowerCase()) >= 0;
