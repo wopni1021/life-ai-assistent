@@ -6,6 +6,23 @@
 
 var AMT_ = '(?:SGD|S\\$)\\s?([\\d,]+(?:\\.\\d+)?)';
 
+/**
+ * Raise by one whenever a reader learns a new format. The next check then reads the recent
+ * Unparsed emails again (retryUnparsed_ in Code.gs), so a fix also brings in what it missed.
+ */
+var PARSER_VERSION = 2;
+var RETRY_UNPARSED_DAYS = 60;
+
+/** Which Unparsed rows ({datetime}) to read again: those from the last `days` days, newest first, at most `max`. Returns row indexes. */
+function unparsedToRetry_(rows, now, days, max) {
+  var from = new Date(now).getTime() - days * 86400000;
+  return rows.map(function (r, i) { return { i: i, t: new Date(r.datetime).getTime() }; })
+    .filter(function (x) { return isFinite(x.t) && x.t >= from; })
+    .sort(function (a, b) { return b.t - a.t; })
+    .slice(0, max)
+    .map(function (x) { return x.i; });
+}
+
 function cleanText_(s) {
   return String(s || '')
     .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
@@ -121,6 +138,15 @@ function parseUob_(subject, t) {
     return {
       kind: 'txn', bank: 'UOB', direction: 'refund', amount: num_(m[1]), accountType: 'card', last4: m[2],
       counterparty: m[3].trim(), counterLast4: '', ref: '', channel: 'Card'
+    };
+  }
+
+  // Refund from a merchant, subject "Your transaction has been refunded". Posted on the next statement.
+  m = new RegExp('A refund of ' + AMT_ + ' from (.+?) has been made to your UOB card ending (\\d{4})', 'i').exec(t);
+  if (m) {
+    return {
+      kind: 'txn', bank: 'UOB', direction: 'refund', amount: num_(m[1]), accountType: 'card', last4: m[3],
+      counterparty: m[2].trim(), counterLast4: '', ref: '', channel: 'Card'
     };
   }
 

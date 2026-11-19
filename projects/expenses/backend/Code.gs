@@ -137,7 +137,7 @@ function fetchNew_() {
   var started = Math.floor(Date.now() / 1000);
   var last = Number(props.getProperty('lastCheckedAt')) || started - FIRST_FETCH_DAYS * 86400;
   var since = last - FETCH_OVERLAP_SECONDS;
-  var added = ingest_(ALERT_SENDERS + ' after:' + since, new Date(since * 1000));
+  var added = retryUnparsed_() + ingest_(ALERT_SENDERS + ' after:' + since, new Date(since * 1000));
   props.setProperty('lastCheckedAt', String(started));
   return added;
 }
@@ -258,14 +258,7 @@ function ingest_(query, notBefore) {
     var id = m.getId();
     var p = parseAlert_(m.getFrom(), m.getSubject(), m.getPlainBody());
     if (p.kind === 'txn') {
-      var r = buildRow_(p, ctx);
-      txRows.push(TABS.Transactions.map(function (h) {
-        if (h === 'id') return id;
-        if (h === 'datetime') return m.getDate();
-        if (h === 'createdAt') return now;
-        if (h === 'note') return r.note || '';
-        return r[h] === undefined ? '' : r[h];
-      }));
+      txRows.push(txRow_(id, m.getDate(), buildRow_(p, ctx), now));
     } else if (p.kind === 'ignore') {
       seenRows.push([id, now]);
     } else {
@@ -281,6 +274,53 @@ function ingest_(query, notBefore) {
     bumpVersion_();
   }
   pruneSeen_(seenSheet);
+  return txRows.length;
+}
+
+/** A Transactions sheet row for a parsed alert. */
+function txRow_(id, date, r, now) {
+  return TABS.Transactions.map(function (h) {
+    if (h === 'id') return id;
+    if (h === 'datetime') return date;
+    if (h === 'createdAt') return now;
+    if (h === 'note') return r.note || '';
+    return r[h] === undefined ? '' : r[h];
+  });
+}
+
+/**
+ * Once after each reader update (PARSER_VERSION in Parsers.gs), reads the recent Unparsed emails again.
+ * Those the readers now understand move to Transactions (or Seen, if they are to be ignored).
+ * Call it while holding the script lock. Returns the number of transactions added.
+ */
+function retryUnparsed_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('parserVersion') === String(PARSER_VERSION)) return 0;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var unSheet = ss.getSheetByName('Unparsed');
+  var n = unSheet.getLastRow();
+  var vals = n > 1 ? unSheet.getRange(2, 1, n - 1, TABS.Unparsed.length).getValues() : [];
+  var rows = vals.map(function (v) { return { id: String(v[0]), datetime: v[1] }; });
+  var ctx = loadContext_(), now = new Date();
+  var txRows = [], seenRows = [], done = [];
+  unparsedToRetry_(rows, now, RETRY_UNPARSED_DAYS, 100).forEach(function (i) {
+    var m;
+    try { m = GmailApp.getMessageById(rows[i].id); } catch (e) { return; }
+    if (!m) return;
+    var p = parseAlert_(m.getFrom(), m.getSubject(), m.getPlainBody());
+    if (p.kind === 'txn') txRows.push(txRow_(rows[i].id, m.getDate(), buildRow_(p, ctx), now));
+    else if (p.kind === 'ignore') seenRows.push([rows[i].id, now]);
+    else return;
+    done.push(i);
+  });
+  append_(ss.getSheetByName('Transactions'), txRows);
+  append_(ss.getSheetByName('Seen'), seenRows);
+  done.sort(function (a, b) { return b - a; }).forEach(function (i) { unSheet.deleteRow(i + 2); });
+  if (txRows.length) {
+    markDuplicateTransfers_();
+    bumpVersion_();
+  }
+  props.setProperty('parserVersion', String(PARSER_VERSION));
   return txRows.length;
 }
 
