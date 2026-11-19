@@ -80,6 +80,10 @@ var cases = [
     from: UOB, subj: 'Your transaction has been reversed',
     body: 'A transaction of 6.93 SGD made with your UOB card ending 3333 on 11 Oct 26, 3:29PM at SHOPEE SG MP has been reversed.',
     expect: { direction: 'refund', amount: 6.93, account: 'uob-card' } },
+  { n: 'UOB refund',
+    from: UOB, subj: 'Your transaction has been refunded',
+    body: 'A refund of SGD5.10 from SHOPEE SG MP has been made to your UOB card ending 3333 on 15 Nov 2026. The refund will be posted in your next statement. UOB EMAIL DISCLAIMER: Any person receiving this email',
+    expect: { direction: 'refund', amount: 5.1, account: 'uob-card', merchantRaw: 'SHOPEE SG MP' } },
   { n: 'UOB GIRO to card centre is a card payment',
     from: UOB, subj: 'UOB Transaction Alert',
     body: 'A transaction of SGD1593.82 was debited from your a/c XXXXXX2222 at 09:31PM 22-Oct-2026, SGT. Ref: Inward DR - GIRO, UOB CARD CENTRE, COLL 884080983333, 4265 884080983333. If unauthorised, call UOB',
@@ -158,6 +162,17 @@ cases.forEach(function (c) {
   });
   if (bad.length) fails.push(c.n + ': ' + bad.join('; ')); else passed++;
 });
+// ---- Retrying Unparsed ----
+(function () {
+  var rows = [
+    { datetime: '2026-11-15T10:00:00' }, { datetime: '2026-08-01T10:00:00' }, { datetime: '' },
+    { datetime: '2026-11-18T10:00:00' }, { datetime: '2026-10-01T10:00:00' }
+  ];
+  var got = JSON.stringify(unparsedToRetry_(rows, '2026-11-19T10:00:00', 60, 10));
+  if (got === '[3,0,4]') passed++; else fails.push('unparsed retry picks the last 60 days, newest first: got ' + got);
+  got = JSON.stringify(unparsedToRetry_(rows, '2026-11-19T10:00:00', 60, 2));
+  if (got === '[3,0]') passed++; else fails.push('unparsed retry keeps to the limit: got ' + got);
+})();
 // ---- Ledger ----
 (function () {
   var accts = [

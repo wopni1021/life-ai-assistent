@@ -1,6 +1,6 @@
 # Expense tracker
 
-Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 114 pass in `projects/expenses/backend/tests/run.html`.
+Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 117 pass in `projects/expenses/backend/tests/run.html`.
 
 Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`, `statementCheck` (reads new statement emails, returns `{processed, waiting}`), `statementItem` (`{id, choice: add | use | dismiss}`). The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
@@ -37,7 +37,9 @@ Sender `unialerts@uobgroup.com` (UOB), about 200 alerts in 90 days. The snippet 
 - Account debit: subject "UOB Transaction Alert". "A transaction of SGD1593.82 was debited from your a/c XXXXXXNNNN at 09:31PM 22-Oct-2026, SGT. Ref: Inward DR - GIRO, <payee>, ...". A GIRO to "UOB CARD CENTRE" is the card bill payment (transfer to the card, not spending). A GIRO to anyone else is real spending.
 - Card bill payment confirmation: subject "UOB-Credit Card Payment Received", amount in the body. It duplicates the GIRO debit above, so it only confirms.
 - Reversal/refund: subject "Your transaction has been reversed". "A transaction of 6.93 SGD made with your UOB card ending NNNN on 11 Oct 26, 3:29PM at <merchant> has been reversed." Money back to the card.
+- Merchant refund: subject "Your transaction has been refunded". "A refund of SGD5.10 from <merchant> has been made to your UOB card ending NNNN on 15 Nov 2026. The refund will be posted in your next statement." Money back to the card (added 2026-11-19).
 - No transaction reference in card alerts. Deduplicate with the Gmail message id.
+- When a reader learns a new format, `PARSER_VERSION` in `Parsers.gs` goes up by one. The next app open then reads the Unparsed emails from the last 60 days again and moves those it now understands to Transactions.
 
 Implications:
 - UOB card: balance owed = card purchases minus reversals minus bill payments. Bill payment is a transfer from the UOB account to the card.
