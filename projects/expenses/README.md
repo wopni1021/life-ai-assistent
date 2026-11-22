@@ -99,7 +99,7 @@ Sender `notifications@ocbc.com` also sends offers and statements; only payment e
   - `spend`: purchases minus refunds on the account this calendar month, at least `target` dollars and `minCount` purchases. Merchants containing any `exclude` word (comma-separated) are left out.
   - `incoming`: money arriving in the account this month (deposits and transfers in), at least `target`.
   - `balance_increase`: this month's average daily balance at least `target` above last month's. Estimated from the app's balances, assuming today's balance stays; it says how much to add today if it falls short.
-- Home shows "This month's bonuses" with a bar per goal; tapping one opens its account. After the 20th a banner lists unmet goals (red in the last 5 days). Shown in the app only; no email yet.
+- Home shows "This month's bonuses" at the bottom, after Recent and the month summary, with a bar per goal; tapping one opens its account. After the 20th a banner lists unmet goals (red in the last 5 days). Shown in the app only; no email yet.
 - Starting goals (2026-11-22, from the banks' pages): UOB One Account salary in S$1,600 and UOB One Card S$1,000 with 10 purchases; OCBC 360 average balance up S$500 and 90°N card S$500 (OCBC excludes some merchant categories, approximated with exclude words); DBS Multiplier salary in S$3,000 and any PayLah! spend.
 - Limits: banks recognise salary by a code on the payment ("SALA" at UOB, "SALARY"/"PAYROLL" at DBS, "GIRO-SALARY"/"SAL" at OCBC); UOB says transfers from own accounts do not count. The app only sees money arriving. Card spend counts by posting date at the bank, by purchase date here.
 

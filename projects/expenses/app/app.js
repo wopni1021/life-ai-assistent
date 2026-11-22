@@ -305,9 +305,6 @@
     accountGroup('Bank accounts', h('span', { class: 'num' }, fmt(b.totalMoney)), banks);
     accountGroup('Credit cards', h('span', { class: 'num owed' }, fmt(b.cardOwed) + ' owed'), cards);
 
-    var goals = goalSection(s.goals);
-    if (goals) out.push(goals);
-
     var byId = {};
     s.rows.forEach(function (r) { byId[r.id] = r; });
     var recent = s.recentIds.map(function (id) { return byId[id]; }).filter(function (r) { return r && r.status !== 'dup'; });
@@ -330,6 +327,8 @@
     out.push(h('div', { id: 'month-summary' },
       h('div', { class: 'section-head' }, h('h2', null, monthLabel(m.month)), h('span', { class: 'num' }, fmt(m.total))),
       h('div', { style: 'height:8px' }), bars));
+    var goals = goalSection(s.goals);
+    if (goals) out.push(goals);
     out.push(h('p', { class: 'small muted' }, 'Last bank alert logged: ' + ago(s.lastAlertAt)));
     show(h('div', { class: 'stack' }, out));
   }
