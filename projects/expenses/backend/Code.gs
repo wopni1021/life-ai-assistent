@@ -12,10 +12,12 @@ var TABS = {
   Seen: ['id', 'seenAt'],
   Vouchers: ['id', 'name', 'amountLeft', 'expires', 'note', 'status', 'createdAt'],
   Statements: ['id', 'account', 'periodFrom', 'periodTo', 'lines', 'status', 'note', 'checkedAt'],
-  StatementItems: ['id', 'statementId', 'account', 'kind', 'date', 'description', 'amount', 'delta', 'reason', 'state', 'txId']
+  StatementItems: ['id', 'statementId', 'account', 'kind', 'date', 'description', 'amount', 'delta', 'reason', 'state', 'txId'],
+  Goals: ['id', 'label', 'kind', 'account', 'target', 'minCount', 'exclude', 'active']
 };
 
-var ALERT_SENDERS = 'from:(ibanking.alert@dbs.com OR unialerts@uobgroup.com OR notifications@ocbc.com)';
+var ALERT_SENDERS = 'from:(ibanking.alert@dbs.com OR paylah.alert@dbs.com OR unialerts@uobgroup.com OR notifications@ocbc.com OR noreply@notify.ocbc.com)';
+var CATCH_UP_DAYS = 60;
 var FETCH_OVERLAP_SECONDS = 3600;
 var FIRST_FETCH_DAYS = 3;
 
@@ -137,7 +139,7 @@ function fetchNew_() {
   var started = Math.floor(Date.now() / 1000);
   var last = Number(props.getProperty('lastCheckedAt')) || started - FIRST_FETCH_DAYS * 86400;
   var since = last - FETCH_OVERLAP_SECONDS;
-  var added = retryUnparsed_() + ingest_(ALERT_SENDERS + ' after:' + since, new Date(since * 1000));
+  var added = upgradeReaders_() + ingest_(ALERT_SENDERS + ' after:' + since, new Date(since * 1000));
   props.setProperty('lastCheckedAt', String(started));
   return added;
 }
@@ -226,8 +228,12 @@ function searchAll_(query) {
   return all;
 }
 
-/** notBefore is optional: Gmail returns whole threads, so older messages in them are skipped. Returns transactions added. */
-function ingest_(query, notBefore) {
+/**
+ * notBefore is optional: Gmail returns whole threads, so older messages in them are skipped.
+ * handRows is optional: when catching up, alerts already entered by hand or from a statement go to Seen instead.
+ * Returns transactions added.
+ */
+function ingest_(query, notBefore, handRows) {
   var threads = searchAll_(query);
   if (!threads.length) return 0;
 
@@ -258,7 +264,9 @@ function ingest_(query, notBefore) {
     var id = m.getId();
     var p = parseAlert_(m.getFrom(), m.getSubject(), m.getPlainBody());
     if (p.kind === 'txn') {
-      txRows.push(txRow_(id, m.getDate(), buildRow_(p, ctx), now));
+      var row = buildRow_(p, ctx);
+      if (handRows && coveredByHand_(row, m.getDate(), handRows)) seenRows.push([id, now]);
+      else txRows.push(txRow_(id, m.getDate(), row, now));
     } else if (p.kind === 'ignore') {
       seenRows.push([id, now]);
     } else {
@@ -289,13 +297,36 @@ function txRow_(id, date, r, now) {
 }
 
 /**
- * Once after each reader update (PARSER_VERSION in Parsers.gs), reads the recent Unparsed emails again.
- * Those the readers now understand move to Transactions (or Seen, if they are to be ignored).
- * Call it while holding the script lock. Returns the number of transactions added.
+ * Once after each reader update (PARSER_VERSION in Parsers.gs): adds any new tabs and accounts the update needs,
+ * reads the recent Unparsed emails again, then reads the last CATCH_UP_DAYS days of alerts, so a new reader or
+ * sender also brings in what was missed. Emails already logged are skipped. Call it while holding the script lock.
+ * Returns the number of transactions added.
  */
-function retryUnparsed_() {
+function upgradeReaders_() {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('parserVersion') === String(PARSER_VERSION)) return 0;
+  ensureGoalsSetup_();
+  var added = retryUnparsed_() + ingest_(ALERT_SENDERS + ' newer_than:' + CATCH_UP_DAYS + 'd', null, loadTx_());
+  props.setProperty('parserVersion', String(PARSER_VERSION));
+  return added;
+}
+
+/** The Goals tab with the starting goals, and the PayLah! Wallet account that PayLah! alerts are logged to. */
+function ensureGoalsSetup_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss.getSheetByName('Goals')) {
+    var sh = ss.insertSheet('Goals');
+    sh.getRange(1, 1, 1, TABS.Goals.length).setValues([TABS.Goals]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.getRange(2, 1, SEED_GOALS.length, TABS.Goals.length).setValues(SEED_GOALS);
+  }
+  var accounts = ss.getSheetByName('Accounts');
+  var has = rows_('Accounts').some(function (a) { return a.id === 'paylah'; });
+  if (!has) accounts.appendRow(['paylah', 'PayLah! Wallet', 'bank', 'DBS', '', 0, 'SGD']);
+}
+
+/** Reads the recent Unparsed emails again (see upgradeReaders_). Returns the number of transactions added. */
+function retryUnparsed_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var unSheet = ss.getSheetByName('Unparsed');
   var n = unSheet.getLastRow();
@@ -320,7 +351,6 @@ function retryUnparsed_() {
     markDuplicateTransfers_();
     bumpVersion_();
   }
-  props.setProperty('parserVersion', String(PARSER_VERSION));
   return txRows.length;
 }
 

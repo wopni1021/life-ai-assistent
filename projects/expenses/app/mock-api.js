@@ -82,6 +82,15 @@
       recentIds: recent,
       vouchers: vouchers,
       voucherWarnDays: 30,
+      goals: [
+        { id: 'uob-salary', label: 'UOB One Account: salary in', kind: 'incoming', account: 'uob-account', target: 1600, minCount: 0, value: 1600, count: 1, met: true },
+        { id: 'uob-card', label: 'UOB One Card spend', kind: 'spend', account: 'uob-card', target: 1000, minCount: 10, value: 412.36, count: 7, excluded: 0, met: false },
+        { id: 'ocbc-save', label: 'OCBC 360: average balance up', kind: 'balance_increase', account: 'ocbc-360', target: 500, minCount: 0, value: 180, count: 0, met: false,
+          lastMonthAverage: 7900, needAverage: 8400, averageSoFar: 8020, projectedAverage: 8080, addNow: 492.31, daysLeft: 12 },
+        { id: 'ocbc-card', label: 'OCBC 90\u00b0N card spend', kind: 'spend', account: 'ocbc-card', target: 500, minCount: 0, value: 88.4, count: 3, excluded: 12, met: false },
+        { id: 'dbs-salary', label: 'DBS Multiplier: salary in', kind: 'incoming', account: 'dbs-savings', target: 3000, minCount: 0, value: 3000, count: 1, met: true },
+        { id: 'dbs-paylah', label: 'DBS Multiplier: PayLah! spend', kind: 'spend', account: 'paylah', target: 0, minCount: 1, value: 0, count: 0, met: false, problem: 'No account "paylah" in the Accounts tab. Add it there, or change the account in the Goals tab.' }
+      ],
       statementItems: statementItems,
       statements: [
         { id: 's1', account: 'uob-card', accountName: 'UOB Card', periodTo: '2026-11-02', lines: 42, status: 'read' },

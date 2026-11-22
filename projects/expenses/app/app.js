@@ -285,6 +285,8 @@
     if (banner) out.push(banner);
     var review = statementBanner();
     if (review) out.push(review);
+    var goalNote = goalBanner(s.goals);
+    if (goalNote) out.push(goalNote);
     out.push(h('div', { class: 'card hero' },
       h('div', { class: 'label' }, 'Total money'),
       h('div', { class: 'big num' }, fmt(b.totalMoney)),
@@ -325,6 +327,8 @@
     out.push(h('div', { id: 'month-summary' },
       h('div', { class: 'section-head' }, h('h2', null, monthLabel(m.month)), h('span', { class: 'num' }, fmt(m.total))),
       h('div', { style: 'height:8px' }), bars));
+    var goals = goalSection(s.goals);
+    if (goals) out.push(goals);
     out.push(h('p', { class: 'small muted' }, 'Last bank alert logged: ' + ago(s.lastAlertAt)));
     show(h('div', { class: 'stack' }, out));
   }
@@ -683,6 +687,72 @@
     });
   }
   /** Unused vouchers close to expiring, soonest first. */
+  /* ---------- bank bonus goals (Goals tab; progress worked out by the backend) ---------- */
+  /** Days left in this month, counting today, and how pressing an unmet goal is: ok, soon (after the 20th) or urgent (last 5 days). */
+  function goalTiming() {
+    var d = new Date(), last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var left = last - d.getDate() + 1;
+    return { left: left, level: left <= 5 ? 'urgent' : d.getDate() > 20 ? 'soon' : 'ok' };
+  }
+  function goalText(g) {
+    if (g.problem) return g.problem;
+    if (g.kind === 'spend') {
+      var parts = [];
+      if (g.target > 0) parts.push(fmt(g.value) + ' of ' + fmt(g.target));
+      if (g.minCount > 0) parts.push(g.count + ' of ' + g.minCount + ' purchases');
+      else if (!(g.target > 0)) parts.push(g.count ? g.count + (g.count === 1 ? ' purchase' : ' purchases') : 'No spend yet');
+      if (g.excluded > 0) parts.push(fmt(g.excluded) + ' not counted');
+      return parts.join(' \u00b7 ');
+    }
+    if (g.kind === 'incoming') return fmt(g.value) + ' of ' + fmt(g.target) + ' arrived';
+    if (g.met) return 'On track: average ' + fmt(g.projectedAverage) + ' if the balance stays (need ' + fmt(g.needAverage) + ')';
+    return 'Add ' + fmt(g.addNow) + ' today to reach an average of ' + fmt(g.needAverage) + ' (last month ' + fmt(g.lastMonthAverage) + ')';
+  }
+  function goalShare(g) {
+    if (g.met) return 1;
+    var parts = [];
+    if (g.kind === 'balance_increase') parts.push(g.target > 0 ? g.value / g.target : 0);
+    else {
+      if (g.target > 0) parts.push(g.value / g.target);
+      if (g.kind === 'spend' && g.minCount > 0) parts.push(g.count / g.minCount);
+    }
+    return parts.length ? Math.max(0, Math.min(1, Math.min.apply(null, parts))) : 0;
+  }
+  function goalBanner(goals) {
+    var open = (goals || []).filter(function (g) { return !g.met; }), t = goalTiming();
+    if (!open.length || t.level === 'ok') return null;
+    return h('button', { class: 'vbanner' + (t.level === 'urgent' ? ' urgent' : ''), onclick: function () {
+      var el = document.getElementById('goals'); if (el) el.scrollIntoView({ block: 'start' });
+    } },
+      h('div', { class: 'head' }, (open.length === 1 ? '1 bank bonus not met yet' : open.length + ' bank bonuses not met yet') + ', ' +
+        (t.left === 1 ? 'last day of the month' : t.left + ' days left')),
+      open.slice(0, 3).map(function (g) { return h('div', { class: 'line' }, g.label); }),
+      open.length > 3 ? h('div', { class: 'line' }, '+' + (open.length - 3) + ' more') : null);
+  }
+  function goalSection(goals) {
+    if (!goals || !goals.length) return null;
+    var t = goalTiming(), met = goals.filter(function (g) { return g.met; }).length;
+    var known = {};
+    db.balances.accounts.forEach(function (a) { known[a.id] = true; });
+    return h('div', { id: 'goals' },
+      h('div', { class: 'section-head' }, h('h2', null, 'This month\u2019s bonuses'),
+        h('span', { class: 'small muted' }, met + ' of ' + goals.length + ' met \u00b7 ' + t.left + (t.left === 1 ? ' day left' : ' days left'))),
+      h('div', { style: 'height:8px' }),
+      h('div', { class: 'card list' }, goals.map(function (g) {
+        var cls = 'goal ' + (g.met ? 'met' : t.level);
+        var body = [h('div', { class: 'goal-top' }, h('span', { class: 'name' }, g.label),
+            h('span', { class: 'goal-mark', 'aria-hidden': 'true' }, g.met ? '\u2713' : '')),
+          h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.round(goalShare(g) * 100) + '%' })),
+          h('div', { class: 'small goal-text' }, goalText(g))];
+        if (g.kind === 'balance_increase' && !g.problem) body.push(h('div', { class: 'small muted' }, 'Estimate from the app\u2019s balances; the bank uses value dates.'));
+        var label = g.label + (g.met ? ', met. ' : ', not met yet. ') + goalText(g);
+        return known[g.account]
+          ? h('button', { type: 'button', class: cls, 'aria-label': label, onclick: function () {
+              state.account = g.account; state.query = ''; render(); window.scrollTo(0, 0);
+            } }, body)
+          : h('div', { class: cls, 'aria-label': label }, body);
+      })));
+  }
   function dueVouchers() {
     return voucherList().filter(function (x) {
       return x.voucher.status !== 'used' && (x.level === 'urgent' || x.level === 'soon');

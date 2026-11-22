@@ -101,6 +101,15 @@ button.bar-row { grid-template-columns: 104px 1fr auto 10px; width: 100%; min-he
 .cat-chips .chip b { font-weight: 600; margin-left: 2px; }
 button.back { background: transparent; border: 0; color: var(--accent); font-weight: 600; min-height: 44px; padding: 0; margin: -6px 0 4px -2px; }
 #month-summary { scroll-margin-top: 12px; }
+#goals { scroll-margin-top: 12px; }
+.goal { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 12px 16px; border: 0; background: transparent; text-align: left; min-height: 44px; }
+.goal-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-weight: 600; }
+.goal-mark { color: var(--good); font-weight: 700; }
+.goal.met .bar > i { background: var(--good); }
+.goal.soon .goal-text { color: var(--warn); }
+.goal.soon .bar > i { background: var(--warn); }
+.goal.urgent .goal-text { color: var(--danger); }
+.goal.urgent .bar > i { background: var(--danger); }
 .bar { height: 8px; border-radius: 99px; background: var(--accent-soft); overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }

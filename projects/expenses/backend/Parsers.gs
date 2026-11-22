@@ -10,7 +10,7 @@ var AMT_ = '(?:SGD|S\\$)\\s?([\\d,]+(?:\\.\\d+)?)';
  * Raise by one whenever a reader learns a new format. The next check then reads the recent
  * Unparsed emails again (retryUnparsed_ in Code.gs), so a fix also brings in what it missed.
  */
-var PARSER_VERSION = 2;
+var PARSER_VERSION = 3;
 var RETRY_UNPARSED_DAYS = 60;
 
 /** Which Unparsed rows ({datetime}) to read again: those from the last `days` days, newest first, at most `max`. Returns row indexes. */
@@ -64,6 +64,17 @@ function parseDbs_(subject, t) {
   }
   var ref = pick_(t, /Transaction Ref:\s*(\S+)/);
   var m;
+
+  // PayLah! wallet payment, from paylah.alert@dbs.com: "From: PayLah! Wallet (Mobile ending NNNN) To: MERCHANT".
+  m = new RegExp('Amount:\\s*' + AMT_).exec(t);
+  if (m && /PayLah! Wallet/i.test(t)) {
+    return {
+      kind: 'txn', bank: 'DBS', direction: 'out', amount: num_(m[1]), accountType: 'bank',
+      last4: pick_(t, /PayLah! Wallet\s*\(Mobile ending (\d{4})\)/i),
+      counterparty: pick_(t, /\bTo:\s*(.+?)\s+(?:To view|If unauthori|Please call|Thank you)/i), counterLast4: '',
+      ref: ref, channel: 'PayLah', wallet: 'paylah'
+    };
+  }
 
   m = new RegExp('You have received\\s+' + AMT_ + '\\s+via', 'i').exec(t);
   if (m) {
@@ -217,6 +228,14 @@ function parseOcbc_(subject, t) {
       counterLast4: lastDigits4_(pick_(toS, /(\(-?\d+\))/)), ref: ref, channel: 'Transfer'
     };
   }
+  // Card purchase, from noreply@notify.ocbc.com: "SGD5.00 was charged at 23:55 on 06-Nov-26 to your card (-NNNN) at MERCHANT."
+  m = new RegExp(AMT_ + ' was charged at [\\d:]+ on \\S+ to your card \\(-?(\\d{4})\\) at (.+?)\\.?\\s+(?:Did not|If you did not|If unauthori)', 'i').exec(t);
+  if (m) {
+    return {
+      kind: 'txn', bank: 'OCBC', direction: 'out', amount: num_(m[1]), accountType: 'card', last4: m[2],
+      counterparty: m[3].replace(/\s+\+?\d{7,}$/, '').trim(), counterLast4: '', ref: '', channel: 'Card'
+    };
+  }
   var card = new RegExp(AMT_ + '.{0,80}?card\\s+(?:ending|no\\.?)\\s*(?:in\\s*|with\\s*)?[x*]*\\s*(\\d{4})', 'i').exec(t);
   if (card) {
     return {
@@ -242,6 +261,12 @@ function findAccount_(accounts, bank, last4, type) {
     var a = accounts[i];
     if (last4Key_(a.last4) === last4Key_(last4) && (!bank || a.bank === bank) && (!type || a.type === type)) return a;
   }
+  return null;
+}
+
+/** A wallet such as PayLah! is found by its id when its last4 (mobile number) is not filled in. */
+function walletAccount_(accounts, id) {
+  for (var i = 0; i < accounts.length; i++) if (accounts[i].id === id) return accounts[i];
   return null;
 }
 
@@ -301,7 +326,7 @@ function matchRule_(raw, rules) {
  * status values: ok | guess (default category, fix when convenient) | review (a number would be wrong) | dup
  */
 function buildRow_(p, ctx) {
-  var acct = findAccount_(ctx.accounts, p.bank, p.last4, p.accountType);
+  var acct = findAccount_(ctx.accounts, p.bank, p.last4, p.accountType) || (p.wallet ? walletAccount_(ctx.accounts, p.wallet) : null);
   var row = {
     direction: p.direction, amount: p.amount, account: acct ? acct.id : '', toAccount: '',
     merchantRaw: p.counterparty || '', merchant: '', category: '', tag: '',
@@ -333,7 +358,7 @@ function buildRow_(p, ctx) {
       if (p.direction === 'in') {
         row.category = 'Income';
       } else {
-        var purchase = p.channel === 'Card' || p.channel === 'NETS' || p.channel === 'PayNow';
+        var purchase = p.channel === 'Card' || p.channel === 'NETS' || p.channel === 'PayNow' || p.channel === 'PayLah';
         row.category = purchase ? (ctx.defaultCategory || 'Dining') : (ctx.defaultTransferCategory || 'Other');
         row.status = 'guess';
       }

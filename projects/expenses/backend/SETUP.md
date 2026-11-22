@@ -65,11 +65,14 @@ After the deploy that added it, open the Apps Script editor once, pick `authoriz
 
 Optional Settings row: `suspiciousAmount` and a number (200 if there is no row). A first-time merchant at or above it is flagged.
 
+## Bank bonus goals
+After the deploy that added them, the first app open creates a `Goals` tab with starting goals and adds a `paylah` row (PayLah! Wallet) to the Accounts tab. Check that each goal's `account` matches an id in the Accounts tab (for example the 90°N card's id), and fill in the 90°N card's last 4 digits. Change targets in the Goals tab when a bank changes its rules; set `active` to `no` to hide one. Add a merchant word to `exclude` when the bank does not count it.
+
 ## Rules tab
 Each row: `pattern` (text the merchant name contains, not case-sensitive; or `re:` followed by a regular expression), then `name`, `category`, `tag`. The first matching row wins.
 
 ## Privacy
 - Bank alerts stay in your Gmail and your sheet.
 - Statement PDFs stay in Gmail. Each is copied to a temporary Google Doc in your Drive to read its text, then deleted. Only the extracted lines go to the sheet.
-- The script only searches for emails from `ibanking.alert@dbs.com` and `unialerts@uobgroup.com`.
+- The script only searches for alert emails from `ibanking.alert@dbs.com`, `paylah.alert@dbs.com`, `unialerts@uobgroup.com`, `notifications@ocbc.com` and `noreply@notify.ocbc.com`, plus statements you email to yourself.
 - Google's permission is for your whole mailbox, so read `Code.gs` if you want to check what it does.
