@@ -1,8 +1,8 @@
 # Expense tracker
 
-Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 117 pass in `projects/expenses/backend/tests/run.html`.
+Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 132 pass in `projects/expenses/backend/tests/run.html`.
 
-Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`, `statementCheck` (reads new statement emails, returns `{processed, waiting}`), `statementItem` (`{id, choice: add | use | dismiss}`). The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
+Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`, `statementCheck` (reads new statement emails, returns `{processed, waiting}`). `sync` also returns `goals` (this month's progress on the Goals tab), `statementItem` (`{id, choice: add | use | dismiss}`). The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
 Repo: https://github.com/wopni1021/life-ai-assistent (public; never commit personal data).
 Reader code: `projects/expenses/backend/` (setup steps in `SETUP.md`).
@@ -93,6 +93,21 @@ Sender `notifications@ocbc.com` also sends offers and statements; only payment e
 - The review screen (from the banner or Activity) groups Warnings, Balance (bank accounts: statement closing balance vs the app), Not in the app (Add), and In the app, not on the statement. Each can be dismissed.
 - A statement line matches a logged entry with the same amount within 3 days. Lines before an account's first logged entry, or before a balance correction, are not counted as missing.
 - Readers built from real samples: OCBC 360, OCBC card, UOB account, UOB card. DBS uses a generic reader until a sample is seen. A statement that yields no lines shows "could not read it".
+
+## Bank bonus goals (added 2026-11-22)
+- The banks pay bonus interest only when monthly conditions are met. Tab `Goals`: `id, label, kind, account, target, minCount, exclude, active` (`active` = no turns a row off). Kinds:
+  - `spend`: purchases minus refunds on the account this calendar month, at least `target` dollars and `minCount` purchases. Merchants containing any `exclude` word (comma-separated) are left out.
+  - `incoming`: money arriving in the account this month (deposits and transfers in), at least `target`.
+  - `balance_increase`: this month's average daily balance at least `target` above last month's. Estimated from the app's balances, assuming today's balance stays; it says how much to add today if it falls short.
+- Home shows "This month's bonuses" with a bar per goal; tapping one opens its account. After the 20th a banner lists unmet goals (red in the last 5 days). Shown in the app only; no email yet.
+- Starting goals (2026-11-22, from the banks' pages): UOB One Account salary in S$1,600 and UOB One Card S$1,000 with 10 purchases; OCBC 360 average balance up S$500 and 90°N card S$500 (OCBC excludes some merchant categories, approximated with exclude words); DBS Multiplier salary in S$3,000 and any PayLah! spend.
+- Limits: banks recognise salary by a code on the payment ("SALA" at UOB, "SALARY"/"PAYROLL" at DBS, "GIRO-SALARY"/"SAL" at OCBC); UOB says transfers from own accounts do not count. The app only sees money arriving. Card spend counts by posting date at the bank, by purchase date here.
+
+## PayLah! and OCBC card alerts (added 2026-11-22)
+- PayLah! payments (`paylah.alert@dbs.com`, "From: PayLah! Wallet (Mobile ending NNNN) To: MERCHANT") are logged as spending from the `paylah` account (PayLah! Wallet), added to the Accounts tab automatically. Its balance starts at 0; set the real balance in the app.
+- OCBC card purchases come from `noreply@notify.ocbc.com`: "SGD5.00 was charged at 23:55 on 06-Nov-26 to your card (-NNNN) at MERCHANT."
+- Only alerts that are emailed can be logged: set the OCBC app and PayLah! to email every transaction.
+- When `PARSER_VERSION` goes up, the next check also reads the last 60 days of alerts. Emails already logged are skipped, and so are alerts already entered by hand or added from a statement (same account, direction and amount within 3 days).
 
 ## Sharing
 Only the user.

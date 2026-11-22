@@ -58,6 +58,20 @@ function balances_(accounts, rows) {
   return { accounts: list, totalMoney: cents_(totalMoney), cardOwed: cents_(cardOwed) };
 }
 
+/**
+ * True when a row entered by hand (id m-...) or added from a statement (st-...) already covers this alert:
+ * same account, direction and amount, within 3 days. Used when catching up on older alerts.
+ */
+function coveredByHand_(row, datetime, existing) {
+  var t = new Date(datetime).getTime(), amt = cents_(amountOf_(row));
+  return existing.some(function (r) {
+    var id = String(r.id || '');
+    if (id.indexOf('m-') !== 0 && id.indexOf('st-') !== 0) return false;
+    if (r.account !== row.account || r.direction !== row.direction || cents_(amountOf_(r)) !== amt) return false;
+    return Math.abs(new Date(r.datetime).getTime() - t) <= 3 * 86400000;
+  });
+}
+
 /** Net card spending after the most recent payment to this card. */
 function cardSinceLastPayment_(rows, cardId) {
   var last = '';

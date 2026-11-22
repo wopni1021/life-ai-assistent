@@ -162,7 +162,8 @@ function snapshot_() {
     vouchers: loadVouchers_(),
     voucherWarnDays: voucherWarnDays_(),
     statementItems: review.statementItems,
-    statements: review.statements
+    statements: review.statements,
+    goals: goalProgress_(rows_('Goals'), accounts, tx, Utilities.formatDate(new Date(), 'Asia/Singapore', 'yyyy-MM-dd'))
   };
 }
 

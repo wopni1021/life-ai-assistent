@@ -6,6 +6,7 @@
 <script src="../Ledger.gs"></script>
 <script src="../Vouchers.gs"></script>
 <script src="../Statements.gs"></script>
+<script src="../Goals.gs"></script>
 <script src="../../app/vouchers.js"></script>
 <script>
 // Samples are rewritten from real alert wording. Names and account numbers are made up.
@@ -16,7 +17,8 @@ var ctx = {
     { id: 'uob-card', name: 'UOB Card', type: 'card', bank: 'UOB', last4: '3333' },
     { id: 'dbs-multiplier', name: 'DBS Multiplier', type: 'bank', bank: 'DBS', last4: '5555' },
     { id: 'ocbc-360', name: 'OCBC 360', type: 'bank', bank: 'OCBC', last4: '6666' },
-    { id: 'ocbc-card', name: 'OCBC Card', type: 'card', bank: 'OCBC', last4: '7777' }
+    { id: 'ocbc-card', name: 'OCBC Card', type: 'card', bank: 'OCBC', last4: '7777' },
+    { id: 'paylah', name: 'PayLah! Wallet', type: 'bank', bank: 'DBS', last4: '' }
   ],
   ownNames: ['jane tan'],
   defaultCategory: 'Dining',
@@ -80,6 +82,14 @@ var cases = [
     from: UOB, subj: 'Your transaction has been reversed',
     body: 'A transaction of 6.93 SGD made with your UOB card ending 3333 on 11 Oct 26, 3:29PM at SHOPEE SG MP has been reversed.',
     expect: { direction: 'refund', amount: 6.93, account: 'uob-card' } },
+  { n: 'OCBC card alert (noreply@notify.ocbc.com)',
+    from: 'noreply@notify.ocbc.com', subj: 'Card Transaction Alert',
+    body: 'Dear Valued Customer We wish to inform you that SGD5.00 was charged at 23:55 on 06-Nov-26 to your card (-7777) at EIGHT TELECOM +6500000000. Did not make this transaction? - Lock your card and/or call us.',
+    expect: { direction: 'out', amount: 5, account: 'ocbc-card', merchantRaw: 'EIGHT TELECOM', channel: 'Card', category: 'Dining', status: 'guess' } },
+  { n: 'PayLah! payment goes to the PayLah! Wallet account',
+    from: 'paylah.alert@dbs.com', subj: 'Transaction Alerts',
+    body: ' Transaction Alerts\n\n| Transaction Ref: PLPE0000 |\n| Dear Sir / Madam, |\n\n| We refer to your PayLah! Scan & Pay Transfer dated 11 Nov. We are pleased to confirm that the transaction was completed. |\n| Date & Time: | 11 Nov 12:06 (SGT) |\n| Amount: | SGD5.30 |\n| From: | PayLah! Wallet (Mobile ending 0000) |\n| To: | FOOD PALATE |\n\nTo view your transactions, login to your PayLah! Wallet and select History.\n\nPlease call DBS hotline immediately if this was an unauthorised transaction.\n\nThank you for banking with us.',
+    expect: { direction: 'out', amount: 5.3, account: 'paylah', merchantRaw: 'FOOD PALATE', channel: 'PayLah', category: 'Dining', status: 'guess' } },
   { n: 'UOB refund',
     from: UOB, subj: 'Your transaction has been refunded',
     body: 'A refund of SGD5.10 from SHOPEE SG MP has been made to your UOB card ending 3333 on 15 Nov 2026. The refund will be posted in your next statement. UOB EMAIL DISCLAIMER: Any person receiving this email',
@@ -162,6 +172,67 @@ cases.forEach(function (c) {
   });
   if (bad.length) fails.push(c.n + ': ' + bad.join('; ')); else passed++;
 });
+// ---- Goals ----
+(function () {
+  function eq(name, got, want) {
+    var g = JSON.stringify(got), w = JSON.stringify(want);
+    if (g === w) passed++; else fails.push('goals: ' + name + ': expected ' + w + ' got ' + g);
+  }
+  var accounts = [
+    { id: 'card', name: 'Card', type: 'card', openingBalance: 0 },
+    { id: 'sav', name: 'Savings', type: 'bank', openingBalance: 1000 },
+    { id: 'dbs', name: 'DBS', type: 'bank', openingBalance: 5000 },
+    { id: 'uob', name: 'UOB', type: 'bank', openingBalance: 0 },
+    { id: 'wallet', name: 'Wallet', type: 'bank', openingBalance: 0 }
+  ];
+  var rows = [
+    { datetime: '2026-11-02T10:00:00', direction: 'out', amount: 600, account: 'card', merchantRaw: 'SHOP A', status: 'ok' },
+    { datetime: '2026-11-03T10:00:00', direction: 'out', amount: 450, account: 'card', merchantRaw: 'CITY PARKING PTE', status: 'ok' },
+    { datetime: '2026-11-04T10:00:00', direction: 'refund', amount: 50, account: 'card', merchantRaw: 'SHOP A', status: 'ok' },
+    { datetime: '2026-11-06T10:00:00', direction: 'out', amount: 100, account: 'card', merchantRaw: 'SHOP B', status: 'ok' },
+    { datetime: '2026-11-06T11:00:00', direction: 'out', amount: 999, account: 'card', merchantRaw: 'SHOP C', status: 'dup' },
+    { datetime: '2026-10-30T10:00:00', direction: 'out', amount: 700, account: 'card', merchantRaw: 'OCTOBER', status: 'ok' },
+    { datetime: '2026-11-05T09:00:00', direction: 'transfer', amount: 1600, account: 'dbs', toAccount: 'uob', status: 'ok' },
+    { datetime: '2026-11-05T09:01:00', direction: 'transfer_in', amount: 1600, account: 'uob', status: 'dup' },
+    { datetime: '2026-11-07T09:00:00', direction: 'refund', amount: 20, account: 'uob', status: 'ok' },
+    { datetime: '2026-11-08T09:00:00', direction: 'adjust', amount: 50, account: 'uob', status: 'ok' },
+    { datetime: '2026-11-05T12:00:00', direction: 'in', amount: 300, account: 'sav', merchantRaw: 'ME', status: 'ok' }
+  ];
+  var goals = [
+    { id: 'card', label: 'Card', kind: 'spend', account: 'card', target: 500, minCount: 3, exclude: 'parking, AXS', active: 'yes' },
+    { id: 'uob', label: 'UOB salary', kind: 'incoming', account: 'uob', target: 1600, active: 'yes' },
+    { id: 'save', label: 'Save', kind: 'balance_increase', account: 'sav', target: 500, active: 'yes' },
+    { id: 'wallet', label: 'Wallet', kind: 'spend', account: 'wallet', target: 0, minCount: 1, active: '' },
+    { id: 'gone', label: 'Gone', kind: 'spend', account: 'nope', target: 1, active: 'yes' },
+    { id: 'off', label: 'Off', kind: 'spend', account: 'card', target: 1, active: 'no' },
+    { id: 'odd', label: 'Odd', kind: 'something', account: 'card', target: 1, active: 'yes' }
+  ];
+  var res = goalProgress_(goals, accounts, rows, '2026-11-10'), by = {};
+  res.forEach(function (g) { by[g.id] = g; });
+  eq('only active goals of known kinds', res.map(function (g) { return g.id; }), ['card', 'uob', 'save', 'wallet', 'gone']);
+  eq('spend leaves out excluded merchants, refunds and duplicates', [by.card.value, by.card.count, by.card.excluded, by.card.met], [650, 2, 450, false]);
+  eq('incoming counts transfers in, not refunds or corrections', [by.uob.value, by.uob.count, by.uob.met], [1600, 1, true]);
+  eq('balance increase estimate', [by.save.lastMonthAverage, by.save.needAverage, by.save.averageSoFar, by.save.projectedAverage, by.save.met, by.save.addNow, by.save.daysLeft],
+    [1000, 1500, 1180, 1260, false, 342.86, 20]);
+  eq('any-amount spend needs one purchase', [by.wallet.met, by.wallet.count], [false, 0]);
+  rows.push({ datetime: '2026-11-09T12:00:00', direction: 'out', amount: 4, account: 'wallet', merchantRaw: 'KOPI', status: 'ok' });
+  eq('any-amount spend met after one', goalProgress_(goals, accounts, rows, '2026-11-10')[3].met, true);
+  eq('unknown account is reported', [by.gone.met, !!by.gone.problem], [false, true]);
+  rows.push({ datetime: '2026-11-10T08:00:00', direction: 'in', amount: 343, account: 'sav', merchantRaw: 'ME', status: 'ok' });
+  var after = goalProgress_(goals, accounts, rows, '2026-11-10')[2];
+  eq('adding the suggested amount today meets it', [after.met, after.addNow], [true, 0]);
+  eq('January looks back to December', goalProgress_([goals[2]], accounts, [], '2027-01-05')[0].lastMonthAverage, 1000);
+
+  var hand = [
+    { id: 'st-abc', datetime: '2026-11-03T12:00:00', direction: 'out', amount: 23.4, account: 'card' },
+    { id: 'm-1', datetime: '2026-11-20T12:00:00', direction: 'out', amount: 8, account: 'card' },
+    { id: '18a0bc', datetime: '2026-11-04T12:00:00', direction: 'out', amount: 15, account: 'card' }
+  ];
+  eq('alert covered by a statement row within 3 days', coveredByHand_({ direction: 'out', amount: 23.4, account: 'card' }, '2026-11-05T09:00:00', hand), true);
+  eq('different amount is not covered', coveredByHand_({ direction: 'out', amount: 23.5, account: 'card' }, '2026-11-05T09:00:00', hand), false);
+  eq('more than 3 days apart is not covered', coveredByHand_({ direction: 'out', amount: 8, account: 'card' }, '2026-11-10T09:00:00', hand), false);
+  eq('alert rows do not count as hand-entered', coveredByHand_({ direction: 'out', amount: 15, account: 'card' }, '2026-11-04T12:00:00', hand), false);
+})();
 // ---- Retrying Unparsed ----
 (function () {
   var rows = [
