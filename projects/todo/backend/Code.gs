@@ -51,10 +51,14 @@ function doPost(e) {
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
+/**
+ * The right token always works. Wrong tries are counted for an hour and, past the limit, refused as
+ * locked; refusals while locked do not restart the hour. The token is about 244 random bits, so the
+ * limit is not what stops guessing, and it must not let a stranger with the address lock the owner out.
+ */
 function checkToken_(given) {
   var cache = CacheService.getScriptCache();
   var fails = Number(cache.get('badTokens') || 0);
-  if (fails >= MAX_BAD_TOKENS_PER_HOUR) return 'locked';
   var want = PropertiesService.getScriptProperties().getProperty('API_TOKEN') || '';
   given = String(given || '');
   var same = want.length > 0 && given.length === want.length;
@@ -64,6 +68,7 @@ function checkToken_(given) {
     same = diff === 0;
   }
   if (same) return 'ok';
+  if (fails >= MAX_BAD_TOKENS_PER_HOUR) return 'locked';
   cache.put('badTokens', String(fails + 1), 3600);
   return 'bad';
 }

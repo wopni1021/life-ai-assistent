@@ -33,7 +33,8 @@ window.SpreadsheetApp = { getActiveSpreadsheet: () => ({
   insertSheet: n => { assert.strictEqual(n, 'Ideas'); ideaGrid = []; ideaSheet = fakeSheet(ideaGrid); return ideaSheet; }
 }), getUi: () => ({ alert() {} }) };
   window.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k] || null, setProperty: (k, v) => { props[k] = v; } }) };
-  window.CacheService = { getScriptCache: () => ({ get: () => null, put() {} }) };
+  var cacheStore = {}, cachePuts = 0;
+  window.CacheService = { getScriptCache: () => ({ get: k => cacheStore[k] || null, put(k, v) { cachePuts++; cacheStore[k] = v; } }) };
   window.LockService = { getScriptLock: () => ({ waitLock() { lockHeld++; }, releaseLock() { lockHeld--; } }) };
   window.Utilities = { getUuid: () => 'u', formatDate: (d, tz, f) => { const s = new Date(d.getTime() + 8 * 3600e3).toISOString(); return f === 'yyyy-MM-dd' ? s.slice(0, 10) : s.slice(0, 19); } };
   window.ContentService = { MimeType: { JSON: 'j', TEXT: 't' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) };
@@ -61,7 +62,17 @@ const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 const row = id => grid.find(r => r[0] === id);
 
 // Wrong token.
-assert.strictEqual(JSON.parse(doPost({ postData: { contents: '{"token":"no","action":"todoList"}' } }).text).error, 'unauthorized');
+const wrong = () => JSON.parse(doPost({ postData: { contents: '{"token":"no","action":"todoList"}' } }).text);
+assert.strictEqual(wrong().error, 'unauthorized');
+// After 20 wrong tries, wrong tokens are refused as locked, the right one still works,
+// and refusals while locked do not restart the hour.
+for (let i = 1; i < 20; i++) wrong();
+assert.strictEqual(cacheStore.badTokens, '20');
+const putsAtLimit = cachePuts;
+assert.strictEqual(wrong().error, 'too many attempts, try again later');
+assert.strictEqual(cachePuts, putsAtLimit, 'a refusal while locked does not restart the hour');
+assert(JSON.parse(doPost({ postData: { contents: '{"token":"secret","action":"todoList"}' } }).text).ok, 'the right token works during a lockout');
+cacheStore = {};
 
 // Short phrase: no AI call.
 aiReply = () => { throw new Error('should not be called'); };
