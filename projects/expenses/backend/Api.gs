@@ -257,12 +257,28 @@ function addRule_(pattern, name, category, tag) {
   return true;
 }
 
+/** A transfer between own accounts, or a card payment, entered by hand. */
+function addManualTransfer_(req, amt, when, id) {
+  var t = manualTransfer_(String(req.account || ''), String(req.toAccount || ''), loadAccounts_());
+  var rec = {
+    id: id, datetime: when, direction: t.direction, amount: Math.round(amt * 100) / 100,
+    account: String(req.account), toAccount: t.toAccount, merchantRaw: t.merchant, merchant: t.merchant,
+    category: 'Transfer', tag: '', note: text_(req.note, 200),
+    bank: 'manual', channel: 'manual', ref: '', status: 'ok', createdAt: new Date()
+  };
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Transactions');
+  sh.getRange(sh.getLastRow() + 1, 1, 1, TABS.Transactions.length).setValues([TABS.Transactions.map(function (h) { return rec[h]; })]);
+  markDuplicateTransfers_(); // the receiving bank's alert may already be in
+  return { id: id, direction: t.direction };
+}
+
 function addManual_(req) {
   var amt = Number(req.amount);
   if (!isFinite(amt) || amt <= 0) throw new Error('enter an amount above 0');
-  var direction = manualDirection_(req);
   var when = /^\d{4}-\d{2}-\d{2}$/.test(req.date || '') ? new Date(req.date + 'T12:00:00+08:00') : new Date();
   var id = 'm-' + Date.now();
+  if (req.direction === 'transfer') return addManualTransfer_(req, amt, when, id);
+  var direction = manualDirection_(req);
   var rec = {
     id: id, datetime: when, direction: direction, amount: Math.round(amt * 100) / 100,
     account: text_(req.account, 40), toAccount: '', merchantRaw: text_(req.merchant, 80), merchant: text_(req.merchant, 80),

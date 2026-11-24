@@ -1,6 +1,6 @@
 # Expense tracker
 
-Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 132 pass in `projects/expenses/backend/tests/run.html`.
+Status: DBS, UOB and OCBC readers and phone app (Home, Activity, Vouchers, Add) in use. Alerts are fetched on demand when the app opens or on pull to refresh, not on a timer. Statement review added 2026-11-07, to be checked on the first real statements. Tests: 145 pass in `projects/expenses/backend/tests/run.html`.
 
 Phone app API (POST text/plain JSON `{token, action, ...}`): `sync` (fetches new alerts, returns everything for the current month, or `{unchanged: true}`), `list` (an older month), `setCategory`, `addManual`, `setBalance`, `deleteRow`, `voucherSave`, `voucherUse`, `voucherDelete`, `statementCheck` (reads new statement emails, returns `{processed, waiting}`). `sync` also returns `goals` (this month's progress on the Goals tab), `statementItem` (`{id, choice: add | use | dismiss}`). The app keeps a saved copy on the phone so it opens and switches tabs without waiting. Row status: `ok`, `guess` (default category, fix when convenient), `review` (a number is missing or would be wrong), `dup`. Balances come from `Accounts.openingBalance` plus all non-duplicate rows; "set actual balance" adds an `adjust` row. Card balance is negative when money is owed.
 
@@ -74,7 +74,7 @@ Sender `notifications@ocbc.com` also sends offers and statements; only payment e
 
 ## Phone behavior
 - Installable web app; opens straight to totals.
-- Quick manual add in a few taps.
+- Quick manual add in a few taps: Received, Spent, or Transfer (From and To; to a card it is a card payment, never spending). A hand-entered transfer with no note stops a matching bank alert (same accounts and amount within 3 days) from being logged again; one with a note is treated as a separate transfer. It is saved at noon, so the receiving bank's alert pairs with it within 3 days.
 - Opens from a saved copy; updates in the background.
 - Unsorted and Needs attention filters in Activity. Nothing blocks.
 - Duplicates (the second alert of a transfer between own accounts) are hidden from Activity and Home's Recent, and shown with a "duplicate" label only on that account's screen.

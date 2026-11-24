@@ -121,6 +121,17 @@
       r.status = 'ok';
       return done({ id: r.id, status: 'ok', ruleAdded: !!req.applyToMerchant });
     }
+    if (a === 'addManual' && req.direction === 'transfer') {
+      var to = accounts.filter(function (x) { return x.id === req.toAccount; })[0];
+      var tid = 'm-' + Date.now(), card = to.type === 'card', nm = card ? 'Card payment' : 'Transfer to ' + to.name;
+      tx.unshift({ id: tid, datetime: (req.date || '2026-10-27') + 'T12:00:00', direction: card ? 'card_payment' : 'transfer', amount: Number(req.amount), account: req.account, toAccount: to.id,
+        merchantRaw: nm, merchant: nm, category: 'Transfer', tag: '', note: req.note || '', bank: 'manual', status: 'ok' });
+      accounts.forEach(function (x) {
+        if (x.id === req.account) x.balance = round(x.balance - Number(req.amount));
+        if (x.id === to.id) x.balance = round(x.balance + Number(req.amount));
+      });
+      return done({ id: tid });
+    }
     if (a === 'addManual') {
       var id = 'm-' + Date.now();
       tx.unshift({ id: id, datetime: (req.date || '2026-10-27') + 'T12:00:00', direction: req.direction || 'out', amount: Number(req.amount), account: req.account, merchantRaw: req.merchant, merchant: req.merchant, category: req.category, tag: req.tag || '', bank: 'manual', status: 'ok' });
