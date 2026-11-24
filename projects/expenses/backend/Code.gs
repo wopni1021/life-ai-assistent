@@ -259,13 +259,20 @@ function ingest_(query, notBefore, handRows) {
 
   var ctx = loadContext_();
   var txRows = [], seenRows = [], unRows = [];
-  var now = new Date();
+  var now = new Date(), manual = null;
+  /** Transfers entered by hand, read only when an alert is a transfer. */
+  function manualRows() {
+    if (!manual) manual = (handRows || loadTx_()).filter(function (r) { return String(r.id).indexOf('m-') === 0; });
+    return manual;
+  }
   msgs.forEach(function (m) {
     var id = m.getId();
     var p = parseAlert_(m.getFrom(), m.getSubject(), m.getPlainBody());
     if (p.kind === 'txn') {
       var row = buildRow_(p, ctx);
-      if (handRows && coveredByHand_(row, m.getDate(), handRows)) seenRows.push([id, now]);
+      var isTransfer = row.direction === 'transfer' || row.direction === 'card_payment';
+      if ((handRows && coveredByHand_(row, m.getDate(), handRows)) ||
+          (isTransfer && coveredByManualTransfer_(row, m.getDate(), manualRows()))) seenRows.push([id, now]);
       else txRows.push(txRow_(id, m.getDate(), row, now));
     } else if (p.kind === 'ignore') {
       seenRows.push([id, now]);

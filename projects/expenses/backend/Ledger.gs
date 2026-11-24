@@ -72,6 +72,36 @@ function coveredByHand_(row, datetime, existing) {
   });
 }
 
+/**
+ * A transfer entered by hand: from one account to another. To a card it is a card payment.
+ * Returns { direction, toAccount, merchant } or throws when the accounts are not usable.
+ */
+function manualTransfer_(fromId, toId, accounts) {
+  var from = null, to = null;
+  accounts.forEach(function (a) { if (a.id === fromId) from = a; if (a.id === toId) to = a; });
+  if (!from || !to) throw new Error('pick both accounts');
+  if (from.id === to.id) throw new Error('pick two different accounts');
+  return to.type === 'card'
+    ? { direction: 'card_payment', toAccount: to.id, merchant: 'Card payment' }
+    : { direction: 'transfer', toAccount: to.id, merchant: 'Transfer to ' + to.name };
+}
+
+/**
+ * True when a transfer entered by hand (id m-..., with no note) already covers this alert's transfer:
+ * same direction, accounts and amount, within 3 days. A hand-entered transfer with a note is meant
+ * as a separate one, so it never covers an alert.
+ */
+function coveredByManualTransfer_(row, datetime, existing) {
+  if (row.direction !== 'transfer' && row.direction !== 'card_payment') return false;
+  var t = new Date(datetime).getTime(), amt = cents_(amountOf_(row));
+  return existing.some(function (r) {
+    if (String(r.id || '').indexOf('m-') !== 0 || String(r.note || '').trim()) return false;
+    if (r.direction !== row.direction || r.account !== row.account || cents_(amountOf_(r)) !== amt) return false;
+    if (row.toAccount && r.toAccount !== row.toAccount) return false;
+    return Math.abs(new Date(r.datetime).getTime() - t) <= 3 * 86400000;
+  });
+}
+
 /** Net card spending after the most recent payment to this card. */
 function cardSinceLastPayment_(rows, cardId) {
   var last = '';
@@ -88,13 +118,18 @@ function cardSinceLastPayment_(rows, cardId) {
 }
 
 /**
- * Incoming rows that repeat an outgoing transfer between own accounts, for the same amount within 30 minutes.
+ * Incoming rows that repeat an outgoing transfer between own accounts, for the same amount within 30 minutes
+ * (3 days for a transfer entered by hand).
  * An exact match (the transfer already names this account) wins over a transfer with no destination yet.
  * Returns [{incoming, outgoing, toAccount}]: row indexes, and the destination to fill in ('' when already set).
  */
 function pairTransfers_(rows) {
   var used = {}, pairs = [];
-  function close(a, b) { return Math.abs(new Date(a.datetime) - new Date(b.datetime)) <= 30 * 60 * 1000; }
+  // A transfer entered by hand has no real time (it is saved at noon), so it pairs within 3 days.
+  function close(a, b) {
+    var hand = String(a.id || '').indexOf('m-') === 0 || String(b.id || '').indexOf('m-') === 0;
+    return Math.abs(new Date(a.datetime) - new Date(b.datetime)) <= (hand ? 3 * 86400000 : 30 * 60 * 1000);
+  }
   rows.forEach(function (ri, i) {
     var incoming = ri.direction === 'transfer_in' || (ri.direction === 'in' && !ri.merchantRaw);
     if (!incoming || ri.status === 'dup') return;

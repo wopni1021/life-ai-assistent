@@ -233,6 +233,47 @@ cases.forEach(function (c) {
   eq('more than 3 days apart is not covered', coveredByHand_({ direction: 'out', amount: 8, account: 'card' }, '2026-11-10T09:00:00', hand), false);
   eq('alert rows do not count as hand-entered', coveredByHand_({ direction: 'out', amount: 15, account: 'card' }, '2026-11-04T12:00:00', hand), false);
 })();
+// ---- Transfers entered by hand ----
+(function () {
+  function eq(name, got, want) {
+    var g = JSON.stringify(got), w = JSON.stringify(want);
+    if (g === w) passed++; else fails.push('manual transfer: ' + name + ': expected ' + w + ' got ' + g);
+  }
+  function err(fn) { try { fn(); return ''; } catch (e) { return e.message; } }
+  var accts = [
+    { id: 'uob', name: 'UOB Account', type: 'bank' }, { id: 'card', name: 'UOB Card', type: 'card' }, { id: 'ocbc', name: 'OCBC 360', type: 'bank' }
+  ];
+  eq('to a card is a card payment', manualTransfer_('uob', 'card', accts), { direction: 'card_payment', toAccount: 'card', merchant: 'Card payment' });
+  eq('to a bank is a transfer', manualTransfer_('uob', 'ocbc', accts), { direction: 'transfer', toAccount: 'ocbc', merchant: 'Transfer to OCBC 360' });
+  eq('same account is refused', err(function () { manualTransfer_('uob', 'uob', accts); }), 'pick two different accounts');
+  eq('unknown account is refused', err(function () { manualTransfer_('uob', 'nope', accts); }), 'pick both accounts');
+
+  var hand = [
+    { id: 'm-1', datetime: '2026-11-20T12:00:00', direction: 'card_payment', amount: 800, account: 'uob', toAccount: 'card', note: '' },
+    { id: 'm-2', datetime: '2026-11-20T12:00:00', direction: 'transfer', amount: 500, account: 'uob', toAccount: 'ocbc', note: 'second top-up, on purpose' },
+    { id: 'm-3', datetime: '2026-11-20T12:00:00', direction: 'out', amount: 300, account: 'uob', toAccount: '', note: '' }
+  ];
+  var alert = { direction: 'card_payment', amount: 800, account: 'uob', toAccount: 'card' };
+  eq('alert for a hand-entered card payment is covered', coveredByManualTransfer_(alert, '2026-11-21T21:31:00', hand), true);
+  eq('alert with an unknown destination is covered too', coveredByManualTransfer_({ direction: 'card_payment', amount: 800, account: 'uob', toAccount: '' }, '2026-11-21T21:31:00', hand), true);
+  eq('different destination is not covered', coveredByManualTransfer_({ direction: 'card_payment', amount: 800, account: 'uob', toAccount: 'other' }, '2026-11-21T21:31:00', hand), false);
+  eq('more than 3 days later is not covered', coveredByManualTransfer_(alert, '2026-11-24T13:00:00', hand), false);
+  eq('a hand-entered transfer with a note never covers an alert', coveredByManualTransfer_({ direction: 'transfer', amount: 500, account: 'uob', toAccount: 'ocbc' }, '2026-11-20T13:00:00', hand), false);
+  eq('spending alerts are never covered this way', coveredByManualTransfer_({ direction: 'out', amount: 300, account: 'uob' }, '2026-11-20T13:00:00', hand), false);
+  var pairs = pairTransfers_([
+    { datetime: '2026-11-20T12:05:00', direction: 'transfer_in', amount: 500, account: 'ocbc', status: 'ok' },
+    { id: 'm-2', datetime: '2026-11-20T12:00:00', direction: 'transfer', amount: 500, account: 'uob', toAccount: 'ocbc', status: 'ok' }
+  ]);
+  eq('the receiving bank\'s alert pairs with a hand-entered transfer', pairs, [{ incoming: 0, outgoing: 1, toAccount: '' }]);
+  eq('even hours later, as a hand entry is saved at noon', pairTransfers_([
+    { datetime: '2026-11-20T21:40:00', direction: 'transfer_in', amount: 500, account: 'ocbc', status: 'ok' },
+    { id: 'm-2', datetime: '2026-11-20T12:00:00', direction: 'transfer', amount: 500, account: 'uob', toAccount: 'ocbc', status: 'ok' }
+  ]).length, 1);
+  eq('alerts still pair only within 30 minutes', pairTransfers_([
+    { datetime: '2026-11-20T21:40:00', direction: 'transfer_in', amount: 500, account: 'ocbc', status: 'ok' },
+    { id: 'abc', datetime: '2026-11-20T12:00:00', direction: 'transfer', amount: 500, account: 'uob', toAccount: 'ocbc', status: 'ok' }
+  ]).length, 0);
+})();
 // ---- Retrying Unparsed ----
 (function () {
   var rows = [

@@ -878,16 +878,27 @@
     var tag = h('input', { type: 'text', id: 'add-tag', placeholder: 'e.g. fish', autocomplete: 'off' });
     var date = h('input', { type: 'date', id: 'add-date', value: next.date || todayStr() });
     var acct = h('select', { id: 'add-account' }, accountOptions(d.accounts));
+    var toAcct = h('select', { id: 'add-to' });
+    var toField = h('label', { class: 'field' }, 'To', toAcct);
+    var moveHint = h('div', { class: 'small muted' }, 'If the bank also emails about this transfer, it is logged once. Add a note when you make the same transfer twice on purpose.');
     var acctLabel = h('span'), noteLabel = h('span');
+    /** The To list leaves out the From account; keeps the choice when it is still there. */
+    function fillTo() {
+      var keep = toAcct.value || store.get('le_add_to');
+      toAcct.replaceChildren.apply(toAcct, accountOptions(d.accounts, acct.value));
+      if (keep && keep !== acct.value && d.accounts.some(function (a) { return a.id === keep; })) toAcct.value = keep;
+    }
+    acct.addEventListener('change', function () { if (kind === 'move') fillTo(); });
     var kindBox = h('div', { class: 'chips' }), choiceBox = h('div', { class: 'chips' }), chipBox = h('div', { class: 'chips' });
     var more = h('details', { class: 'vfold' }, h('summary', null, 'More: category and keyword'),
       h('div', { class: 'stack' }, chipBox, h('label', { class: 'field' }, 'Keyword', tag)));
 
-    function rememberKey() { return 'le_add_acct_' + (kind === 'out' ? 'out' : choice); }
+    function rememberKey() { return 'le_add_acct_' + (kind === 'out' ? 'out' : kind === 'move' ? 'move' : choice); }
     function pickAccount() {
       var saved = next.account || store.get(rememberKey());
       next.account = null;
       if (saved && d.accounts.some(function (a) { return a.id === saved; })) acct.value = saved;
+      if (kind === 'move') fillTo();
     }
     function chip(label, on, click) {
       return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(on), onclick: click }, label);
@@ -895,14 +906,16 @@
     function draw() {
       kindBox.replaceChildren(
         chip('Received', kind === 'in', function () { kind = 'in'; draw(); pickAccount(); }),
-        chip('Spent', kind === 'out', function () { kind = 'out'; draw(); pickAccount(); }));
+        chip('Spent', kind === 'out', function () { kind = 'out'; draw(); pickAccount(); }),
+        chip('Transfer', kind === 'move', function () { kind = 'move'; draw(); pickAccount(); }));
       choiceBox.replaceChildren.apply(choiceBox, Object.keys(RECEIVED).map(function (k) {
         return chip(RECEIVED[k].label, choice === k, function () { choice = k; draw(); pickAccount(); });
       }));
       choiceBox.hidden = kind !== 'in';
       more.hidden = kind !== 'out';
-      acctLabel.textContent = kind === 'out' ? 'Paid from' : 'Into';
-      merchant.placeholder = kind === 'out' ? 'e.g. Wet market' : 'Optional note';
+      toField.hidden = kind !== 'move'; moveHint.hidden = kind !== 'move';
+      acctLabel.textContent = kind === 'out' ? 'Paid from' : kind === 'move' ? 'From' : 'Into';
+      merchant.placeholder = kind === 'out' ? 'e.g. Wet market' : kind === 'move' ? 'Optional' : 'Optional note';
       noteLabel.textContent = kind === 'out' ? 'What for' : 'Note';
       chipBox.replaceChildren.apply(chipBox, d.categories.map(function (c) {
         return chip(c, c === selected, function () { selected = selected === c ? '' : c; draw(); });
@@ -914,6 +927,7 @@
     function submit(another) {
       var v = parseMoney(amount.value);
       if (isNaN(v) || v <= 0) return toast('Enter an amount');
+      if (kind === 'move') return submitTransfer(v, another);
       var r = kind === 'out' ? null : RECEIVED[choice];
       var note = merchant.value.trim();
       var payload = kind === 'out'
@@ -938,14 +952,41 @@
       if (!another) window.scrollTo(0, 0);
       toast(another ? 'Added. Enter the next one.' : 'Added');
     }
+    /** A transfer between own accounts; to a card it is a card payment. Neither counts as spending. */
+    function submitTransfer(v, another) {
+      if (!toAcct.value || toAcct.value === acct.value) return toast('Pick where the money went');
+      var to = d.accounts.filter(function (a) { return a.id === toAcct.value; })[0];
+      var isCard = to.type === 'card';
+      var payload = { amount: v, direction: 'transfer', account: acct.value, toAccount: to.id, note: merchant.value.trim(), date: date.value };
+      store.set(rememberKey(), payload.account); store.set('le_add_to', payload.toAccount);
+      if (another) {
+        state.nextAdd = { kind: kind, choice: choice, account: payload.account, date: payload.date };
+      } else {
+        state.tab = 'txns'; state.account = null; state.filter = 'all'; state.query = ''; state.category = null;
+        state.month = payload.date.slice(0, 7);
+        store.set('le_tab', 'txns'); buildTabs();
+      }
+      mutate('addManual', payload, function () {
+        var id = 'tmp-' + Date.now(), name = isCard ? 'Card payment' : 'Transfer to ' + to.name;
+        db.rows.unshift({ id: id, datetime: payload.date + 'T12:00:00', direction: isCard ? 'card_payment' : 'transfer', amount: v, account: payload.account,
+          toAccount: to.id, merchantRaw: name, merchant: name, category: 'Transfer', tag: '', note: payload.note, bank: 'manual', status: 'ok',
+          effects: [{ account: payload.account, delta: -v }, { account: to.id, delta: v }] });
+        db.recentIds.unshift(id);
+        moveBalance(payload.account, -v); moveBalance(to.id, v);
+      });
+      if (!another) window.scrollTo(0, 0);
+      toast(another ? 'Added. Enter the next one.' : 'Added');
+    }
     show(h('div', { class: 'card editor' },
       h('h2', null, 'Add an entry'),
-      h('div', { class: 'small muted' }, 'For rebates, cash and anything the bank did not email about.'),
+      h('div', { class: 'small muted' }, 'For rebates, cash, transfers and anything the bank did not email about.'),
       kindBox,
       choiceBox,
       h('label', { class: 'field' }, 'Amount (SGD)', amount),
       h('label', { class: 'field' }, acctLabel, acct),
+      toField,
       h('label', { class: 'field' }, noteLabel, merchant),
+      moveHint,
       h('label', { class: 'field' }, 'Date', date),
       more,
       h('button', { class: 'btn', onclick: function () { submit(false); } }, 'Add entry'),
